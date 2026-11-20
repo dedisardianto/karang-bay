@@ -613,7 +613,8 @@ export function createWorld(city, random) {
     car.speed -= car.speed * CAR.drag * dt;
     if (input.handbrakeHeld()) car.speed -= car.speed * CAR.handbrakeDrag * dt;
     car.speed = clamp(car.speed, -CAR.maxReverse, CAR.maxSpeed);
-    const steerFactor = clamp(Math.abs(car.speed) / 160, 0, 1) * (car.speed < 0 ? -1 : 1);
+    // A little steering even at low speed, so a stopped car can turn around.
+    const steerFactor = clamp(Math.abs(car.speed) / 160, 0.2, 1) * (car.speed < 0 ? -1 : 1);
     car.angle += steer * CAR.steerRate * steerFactor * dt * (input.handbrakeHeld() ? 1.5 : 1);
     const nx = car.x + Math.cos(car.angle) * car.speed * dt;
     const ny = car.y + Math.sin(car.angle) * car.speed * dt;
