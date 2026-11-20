@@ -64,7 +64,7 @@ export function createWorld(city, random) {
   }
   const policeCars = [];
   for (let i = 0; i < POLICE.maxCars; i += 1) {
-    policeCars.push({ active: false, x: 0, y: 0, angle: 0, speed: 0, ramCooldown: 0, lost: 0 });
+    policeCars.push({ active: false, x: 0, y: 0, angle: 0, speed: 0, ramCooldown: 0, lost: 0, aimDx: 0, aimDy: 0 });
   }
   const officers = [];
   for (let i = 0; i < POLICE.maxOfficers; i += 1) {
@@ -300,10 +300,10 @@ export function createWorld(city, random) {
     return best;
   }
 
-  function damagePlayer(amount) {
+  function damagePlayer(amount, invulnSeconds) {
     if (player.invulnerable > 0) return;
     player.health -= amount;
-    player.invulnerable = 0.6;
+    player.invulnerable = invulnSeconds || 0.6;
     player.regenDelay = 3;
   }
 
@@ -411,6 +411,10 @@ export function createWorld(city, random) {
         car.speed = 0;
         car.ramCooldown = 0;
         car.lost = 0;
+        // Each car aims at a slightly different point near the player, so the
+        // whole fleet does not pile onto the same spot.
+        car.aimDx = (random() - 0.5) * 220;
+        car.aimDy = (random() - 0.5) * 220;
       }
     }
     const px = player.inCar ? player.inCar.x : player.x;
@@ -434,7 +438,7 @@ export function createWorld(city, random) {
       } else {
         car.lost = 0;
       }
-      const targetAngle = angleTo(car.x, car.y, px, py);
+      const targetAngle = angleTo(car.x, car.y, px + car.aimDx, py + car.aimDy);
       car.angle = turnToward(car.angle, targetAngle, 3.2 * dt);
       car.speed = Math.min(POLICE.carSpeed, car.speed + 500 * dt);
       const nx = car.x + Math.cos(car.angle) * car.speed * dt;
@@ -448,7 +452,7 @@ export function createWorld(city, random) {
         const d = Math.hypot(car.x - player.inCar.x, car.y - player.inCar.y);
         if (d < 56 && car.ramCooldown === 0) {
           car.ramCooldown = 1.8;
-          damagePlayer(POLICE.ramDamage);
+          damagePlayer(POLICE.ramDamage, 1.5);
           player.inCar.speed *= 0.55;
           return EVENT_CRASH;
         }

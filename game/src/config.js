@@ -50,7 +50,7 @@ export const POLICE = {
   maxOfficers: 2,
   carSpeed: 470,
   officerSpeed: 205,
-  ramDamage: 6,
+  ramDamage: 4,
   bustRange: 30,
   spawnDistance: 700,
 };
