@@ -1,7 +1,8 @@
-// KARANG BAY's map: a seeded city grid. Roads run on fixed centrelines; the blocks
-// between them hold buildings (Kampung dense, Perumahan suburban, Pelabuhan docks),
-// the Pasar plaza and the park stay open, and the south edge is the harbour water.
-// The road graph (intersections + neighbours) is what traffic AI drives on.
+// KARANG BAY's map: a seeded city grid. Roads run on fixed centrelines; the
+// blocks between them hold buildings (Kampung dense, Perumahan suburban,
+// Pelabuhan docks), the Pasar plaza and the park stay open, and the south edge
+// is the harbour water. The road graph (intersections + neighbours) is what the
+// traffic AI drives on.
 import { CITY, PALETTE, ROADS } from './config.js';
 
 const WATER_TOP = 2130; // south of this line is the harbour water
@@ -22,12 +23,13 @@ export const GARAGE = { x: 560, y: 1560, w: 130, h: 90 }; // Kampung garage (mis
 export const HIDEOUT = { x: 2720, y: 330, w: 120, h: 80 }; // mission 3 hideout
 export const DOCK = { x: 1560, y: 2050, w: 80, h: 60 }; // Pelabuhan delivery dock
 
-function overlaps(a, b) {
+function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
 function inOpenArea(rect) {
-  return overlaps(rect, PLAZA) || overlaps(rect, PARK) || overlaps(rect, GARAGE) || overlaps(rect, HIDEOUT);
+  return rectsOverlap(rect, PLAZA) || rectsOverlap(rect, PARK)
+    || rectsOverlap(rect, GARAGE) || rectsOverlap(rect, HIDEOUT);
 }
 
 export function createCity(random) {
@@ -78,6 +80,8 @@ export function createCity(random) {
   }
 
   // Road graph: every intersection, with its neighbours along the roads.
+  // Vertical roads are 600 apart, horizontal 550 apart, so neighbours are the
+  // adjacent intersections in the grid — found by exact grid steps.
   const nodes = [];
   const nodeAt = new Map();
   for (const x of ROADS.vertical) {
@@ -88,16 +92,6 @@ export function createCity(random) {
     }
   }
   for (const node of nodes) {
-    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
-      const nx = node.x + dx * 600;
-      const ny = node.y + dy * 550;
-      const other = nodeAt.get(`${nx},${ny}`);
-      if (other) node.neighbours.push(other);
-    }
-  }
-  // Vertical roads are 600 apart, horizontal 550 apart — rebuild neighbours by exact grid steps.
-  for (const node of nodes) {
-    node.neighbours = [];
     const xi = ROADS.vertical.indexOf(node.x);
     const yi = ROADS.horizontal.indexOf(node.y);
     if (xi > 0) node.neighbours.push(nodeAt.get(`${ROADS.vertical[xi - 1]},${node.y}`));

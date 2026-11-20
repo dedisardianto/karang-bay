@@ -1,6 +1,6 @@
-// Sound for Karang Bay, made only from WebAudio oscillators — no audio files.
-// Engine hum follows the car's speed, the police siren is a two-tone wail, and
-// pickups, crashes, punches and mission jingles are short envelopes.
+// Sound for Karang Bay, built only from WebAudio oscillators — no audio files.
+// The engine hum follows the car's speed, the police siren is a two-tone wail,
+// and pickups, crashes, punches and mission jingles are short envelopes.
 
 export function createAudio() {
   let ctx = null;
@@ -32,7 +32,7 @@ export function createAudio() {
     if (ensure() && ctx.state === 'suspended') ctx.resume().catch(() => {});
   }
 
-  function blip(freq, duration, type, volume, slideTo) {
+  function tone(freq, duration, type, volume, slideTo) {
     if (!ensure() || muted) return;
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -130,35 +130,35 @@ export function createAudio() {
       sirenGain.gain.value = 0.045;
     },
     pickup() {
-      blip(660, 0.16, 'sine', 0.22, 990);
+      tone(660, 0.16, 'sine', 0.22, 990);
     },
     coin() {
-      blip(880, 0.1, 'sine', 0.16, 1320);
+      tone(880, 0.1, 'sine', 0.16, 1320);
     },
     punch() {
-      blip(160, 0.12, 'square', 0.2, 70);
+      tone(160, 0.12, 'square', 0.2, 70);
     },
     crash() {
-      blip(90, 0.22, 'sawtooth', 0.28, 45);
+      tone(90, 0.22, 'sawtooth', 0.28, 45);
     },
     steal() {
-      blip(440, 0.12, 'square', 0.18, 330);
-      setTimeout(() => blip(330, 0.14, 'square', 0.18, 220), 90);
+      tone(440, 0.12, 'square', 0.18, 330);
+      setTimeout(() => tone(330, 0.14, 'square', 0.18, 220), 90);
     },
     busted() {
-      blip(392, 0.3, 'sawtooth', 0.22, 196);
-      setTimeout(() => blip(196, 0.5, 'sawtooth', 0.22, 98), 240);
+      tone(392, 0.3, 'sawtooth', 0.22, 196);
+      setTimeout(() => tone(196, 0.5, 'sawtooth', 0.22, 98), 240);
     },
     jingle() {
       const notes = [523, 659, 784, 1047];
       notes.forEach((freq, index) => {
-        setTimeout(() => blip(freq, 0.22, 'sine', 0.2), index * 110);
+        setTimeout(() => tone(freq, 0.22, 'sine', 0.2), index * 110);
       });
     },
     victory() {
       const notes = [523, 659, 784, 1047, 1319];
       notes.forEach((freq, index) => {
-        setTimeout(() => blip(freq, 0.3, 'triangle', 0.22), index * 130);
+        setTimeout(() => tone(freq, 0.3, 'triangle', 0.22), index * 130);
       });
     },
   };

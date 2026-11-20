@@ -1,8 +1,8 @@
-// KARANG BAY's rules and state, with no drawing and no browser in it: the player
-// on foot and in cars, traffic and pedestrians, police and the wanted level, the
-// five chained missions, cash and health. step() advances one fixed step and returns
-// what happened as bit flags, so the caller can react without the world knowing
-// about screens or sound. Pools are allocated once, at boot.
+// KARANG BAY's rules and state, with no drawing and no browser in it: the
+// player on foot and in cars, traffic and pedestrians, police and the wanted
+// level, the five chained missions, cash and health. step() advances one fixed
+// step and returns what happened as bit flags, so the caller can react without
+// the world knowing about screens or sound. The pools are allocated once, at boot.
 import {
   CAR, CITY, MISSIONS, PARKED, PEDS, PLAYER, POLICE, TRAFFIC, WANTED,
 } from './config.js';
@@ -25,19 +25,19 @@ const SEDAN_SPOT = { x: 2150, y: 985 };
 const DEBTOR_SPOT = { x: 910, y: 1440 };
 const BRIDGE_SPOT = { x: 1600, y: 70 };
 
-function clamp(value, min, max) {
+function clampNum(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function angleTo(fromX, fromY, toX, toY) {
+function angleBetween(fromX, fromY, toX, toY) {
   return Math.atan2(toY - fromY, toX - fromX);
 }
 
-function turnToward(angle, target, maxTurn) {
+function turnTowards(angle, target, maxTurn) {
   let diff = target - angle;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
-  return angle + clamp(diff, -maxTurn, maxTurn);
+  return angle + clampNum(diff, -maxTurn, maxTurn);
 }
 
 export function createWorld(city, random) {
@@ -79,29 +79,29 @@ export function createWorld(city, random) {
     missionDone: false, elapsed: 0, message: '', messageTimer: 0,
   };
 
-  function showMessage(text, seconds) {
+  function setMessage(text, seconds) {
     state.message = text;
     state.messageTimer = seconds;
   }
 
-  function freeCar() {
+  function nextFreeCar() {
     for (const car of cars) if (!car.active) return car;
     return null;
   }
-  function freePed() {
+  function nextFreePed() {
     for (const ped of peds) if (!ped.active) return ped;
     return null;
   }
-  function freePoliceCar() {
+  function nextFreePoliceCar() {
     for (const car of policeCars) if (!car.active) return car;
     return null;
   }
-  function freeOfficer() {
+  function nextFreeOfficer() {
     for (const officer of officers) if (!officer.active) return officer;
     return null;
   }
 
-  function randomRoadPoint() {
+  function randomRoadSpot() {
     const vertical = Math.random() < 0.5;
     if (vertical) {
       const roads = [400, 1000, 1600, 2200, 2800];
@@ -111,7 +111,7 @@ export function createWorld(city, random) {
     return { x: 200 + random() * 2800, y: roads[Math.floor(random() * roads.length)] };
   }
 
-  function spawnTrafficCar(car) {
+  function spawnTraffic(car) {
     const node = city.nodes[Math.floor(random() * city.nodes.length)];
     const neighbours = node.neighbours;
     const next = neighbours[Math.floor(random() * neighbours.length)];
@@ -122,7 +122,7 @@ export function createWorld(city, random) {
     car.progress = random();
     car.x = node.x + (next.x - node.x) * car.progress;
     car.y = node.y + (next.y - node.y) * car.progress;
-    car.angle = angleTo(node.x, node.y, next.x, next.y);
+    car.angle = angleBetween(node.x, node.y, next.x, next.y);
     car.cruise = TRAFFIC.speed + (random() - 0.5) * TRAFFIC.speedJitter;
     car.speed = car.cruise;
     car.driver = true;
@@ -130,7 +130,7 @@ export function createWorld(city, random) {
     car.color = ['#e5534b', '#4fc3f7', '#f2c94c', '#7bc96f', '#b07fd6', '#e07b39', '#e8e8e8'][Math.floor(random() * 7)];
   }
 
-  function spawnParkedCar(car, x, y, missionCar) {
+  function spawnParked(car, x, y, missionCar) {
     car.active = true;
     car.kind = missionCar ? 'mission' : 'parked';
     car.x = x;
@@ -144,7 +144,7 @@ export function createWorld(city, random) {
     car.to = null;
   }
 
-  function spawnPed(ped, x, y, kind) {
+  function spawnWalker(ped, x, y, kind) {
     ped.active = true;
     ped.kind = kind || 'walker';
     ped.x = x;
@@ -153,13 +153,13 @@ export function createWorld(city, random) {
     ped.speed = PEDS.speed * (0.8 + random() * 0.4);
     ped.fleeing = false;
     ped.down = 0;
-    const target = randomRoadPoint();
+    const target = randomRoadSpot();
     ped.targetX = target.x;
     ped.targetY = target.y;
   }
 
-  function spawnDebtor() {
-    const ped = freePed();
+  function spawnDebtorAtPark() {
+    const ped = nextFreePed();
     if (!ped) return;
     ped.active = true;
     ped.kind = 'debtor';
@@ -171,14 +171,14 @@ export function createWorld(city, random) {
     ped.down = 0;
   }
 
-  function setTarget(x, y, label) {
+  function setMissionTarget(x, y, label) {
     state.missionTarget.x = x;
     state.missionTarget.y = y;
     state.missionTarget.label = label;
   }
 
-  function addWanted(amount) {
-    state.wanted = clamp(state.wanted + amount, 0, WANTED.max);
+  function raiseWanted(amount) {
+    state.wanted = clampNum(state.wanted + amount, 0, WANTED.max);
     state.calmTimer = 0;
   }
 
@@ -189,27 +189,27 @@ export function createWorld(city, random) {
     state.missionTimer = MISSIONS[index].timeLimit;
     state.surviveTimer = 0;
     if (index === 0) {
-      setTarget(PLAZA.x + PLAZA.w / 2, PLAZA.y + PLAZA.h / 2, 'PASAR — pick up');
+      setMissionTarget(PLAZA.x + PLAZA.w / 2, PLAZA.y + PLAZA.h / 2, 'PASAR — pick up');
     } else if (index === 1) {
       // The marked sedan waits near Perumahan.
       let sedan = null;
       for (const car of cars) if (car.active && car.mission) sedan = car;
       if (!sedan) {
-        sedan = freeCar();
-        if (sedan) spawnParkedCar(sedan, SEDAN_SPOT.x, SEDAN_SPOT.y, true);
+        sedan = nextFreeCar();
+        if (sedan) spawnParked(sedan, SEDAN_SPOT.x, SEDAN_SPOT.y, true);
       }
-      setTarget(SEDAN_SPOT.x, SEDAN_SPOT.y, 'SEDAN — steal it');
+      setMissionTarget(SEDAN_SPOT.x, SEDAN_SPOT.y, 'SEDAN — steal it');
     } else if (index === 2) {
       state.wanted = 3;
-      setTarget(HIDEOUT.x + HIDEOUT.w / 2, HIDEOUT.y + HIDEOUT.h / 2, 'HIDEOUT — or survive');
+      setMissionTarget(HIDEOUT.x + HIDEOUT.w / 2, HIDEOUT.y + HIDEOUT.h / 2, 'HIDEOUT — or survive');
     } else if (index === 3) {
-      spawnDebtor();
-      setTarget(DEBTOR_SPOT.x, DEBTOR_SPOT.y, 'BUDI — at the park');
+      spawnDebtorAtPark();
+      setMissionTarget(DEBTOR_SPOT.x, DEBTOR_SPOT.y, 'BUDI — at the park');
     } else {
       state.wanted = Math.max(state.wanted, 4);
-      setTarget(BRIDGE_SPOT.x, BRIDGE_SPOT.y, 'JEMBATAN — drive out');
+      setMissionTarget(BRIDGE_SPOT.x, BRIDGE_SPOT.y, 'JEMBATAN — drive out');
     }
-    showMessage(`${MISSIONS[index].name}: ${MISSIONS[index].brief}`, 6);
+    setMessage(`${MISSIONS[index].name}: ${MISSIONS[index].brief}`, 6);
   }
 
   function completeMission() {
@@ -219,12 +219,12 @@ export function createWorld(city, random) {
     // A breather between jobs: Pak Darma patches Rian up and the heat cools a little.
     player.health = Math.min(PLAYER.health, player.health + 50);
     state.wanted = Math.max(0, state.wanted - 1);
-    showMessage(`Mission complete! +${mission.reward.toLocaleString('en-US').replace(/,/g, '.')} Rp`, 3);
+    setMessage(`Mission complete! +${mission.reward.toLocaleString('en-US').replace(/,/g, '.')} Rp`, 3);
     return EVENT_MISSION;
   }
 
   function failMission(reason) {
-    showMessage(`Mission failed — ${reason}. Try again.`, 4);
+    setMessage(`Mission failed — ${reason}. Try again.`, 4);
     setupMission();
     return EVENT_FAIL;
   }
@@ -269,21 +269,21 @@ export function createWorld(city, random) {
     state.missionDone = false;
     state.elapsed = 0;
     for (let i = 0; i < TRAFFIC.count; i += 1) {
-      const car = freeCar();
-      if (car) spawnTrafficCar(car);
+      const car = nextFreeCar();
+      if (car) spawnTraffic(car);
     }
     for (let i = 0; i < PARKED.count; i += 1) {
-      const car = freeCar();
+      const car = nextFreeCar();
       if (car) {
-        const spot = randomRoadPoint();
-        spawnParkedCar(car, spot.x + 70, spot.y + (random() - 0.5) * 40, false);
+        const spot = randomRoadSpot();
+        spawnParked(car, spot.x + 70, spot.y + (random() - 0.5) * 40, false);
       }
     }
     for (let i = 0; i < PEDS.count; i += 1) {
-      const ped = freePed();
+      const ped = nextFreePed();
       if (ped) {
-        const spot = randomRoadPoint();
-        spawnPed(ped, spot.x + (random() - 0.5) * 120, spot.y + (random() - 0.5) * 120, 'walker');
+        const spot = randomRoadSpot();
+        spawnWalker(ped, spot.x + (random() - 0.5) * 120, spot.y + (random() - 0.5) * 120, 'walker');
       }
     }
     setupMission();
@@ -303,7 +303,7 @@ export function createWorld(city, random) {
     return best;
   }
 
-  function damagePlayer(amount, invulnSeconds) {
+  function hurtPlayer(amount, invulnSeconds) {
     if (player.invulnerable > 0) return;
     player.health -= amount;
     player.invulnerable = invulnSeconds || 0.6;
@@ -327,7 +327,7 @@ export function createWorld(city, random) {
         car.from = cameFrom;
         car.to = next;
         car.progress = 0;
-        car.angle = angleTo(cameFrom.x, cameFrom.y, next.x, next.y);
+        car.angle = angleBetween(cameFrom.x, cameFrom.y, next.x, next.y);
       } else {
         car.x = from.x + (to.x - from.x) * car.progress;
         car.y = from.y + (to.y - from.y) * car.progress;
@@ -342,10 +342,10 @@ export function createWorld(city, random) {
         ped.down -= dt;
         if (ped.down <= 0) {
           ped.active = false;
-          const fresh = freePed();
+          const fresh = nextFreePed();
           if (fresh && fresh !== ped) {
-            const spot = randomRoadPoint();
-            spawnPed(fresh, spot.x, spot.y, 'walker');
+            const spot = randomRoadSpot();
+            spawnWalker(fresh, spot.x, spot.y, 'walker');
           }
         }
         continue;
@@ -363,16 +363,12 @@ export function createWorld(city, random) {
       const dy = ty - ped.y;
       const dist = Math.hypot(dx, dy);
       if (dist < 24) {
+        const target = randomRoadSpot();
         if (ped.fleeing) {
           ped.fleeing = false;
-          const target = randomRoadPoint();
-          ped.targetX = target.x;
-          ped.targetY = target.y;
-        } else {
-          const target = randomRoadPoint();
-          ped.targetX = target.x;
-          ped.targetY = target.y;
         }
+        ped.targetX = target.x;
+        ped.targetY = target.y;
         continue;
       }
       ped.angle = Math.atan2(dy, dx);
@@ -392,7 +388,7 @@ export function createWorld(city, random) {
     let activeCars = 0;
     for (const car of policeCars) if (car.active) activeCars += 1;
     if (activeCars < wantCars && state.policeCooldown <= 0) {
-      const car = freePoliceCar();
+      const car = nextFreePoliceCar();
       if (car) {
         // Spawn on a road node away from the player.
         const px = player.inCar ? player.inCar.x : player.x;
@@ -410,7 +406,7 @@ export function createWorld(city, random) {
         car.active = true;
         car.x = node.x;
         car.y = node.y;
-        car.angle = angleTo(node.x, node.y, px, py);
+        car.angle = angleBetween(node.x, node.y, px, py);
         car.speed = 0;
         car.ramCooldown = 0;
         car.lost = 0;
@@ -441,8 +437,8 @@ export function createWorld(city, random) {
       } else {
         car.lost = 0;
       }
-      const targetAngle = angleTo(car.x, car.y, px + car.aimDx, py + car.aimDy);
-      car.angle = turnToward(car.angle, targetAngle, 3.2 * dt);
+      const targetAngle = angleBetween(car.x, car.y, px + car.aimDx, py + car.aimDy);
+      car.angle = turnTowards(car.angle, targetAngle, 3.2 * dt);
       car.speed = Math.min(POLICE.carSpeed, car.speed + 500 * dt);
       const nx = car.x + Math.cos(car.angle) * car.speed * dt;
       const ny = car.y + Math.sin(car.angle) * car.speed * dt;
@@ -455,7 +451,7 @@ export function createWorld(city, random) {
         const d = Math.hypot(car.x - player.inCar.x, car.y - player.inCar.y);
         if (d < 56 && car.ramCooldown === 0) {
           car.ramCooldown = 1.8;
-          damagePlayer(POLICE.ramDamage, 1.5);
+          hurtPlayer(POLICE.ramDamage, 1.5);
           player.inCar.speed *= 0.55;
           return EVENT_CRASH;
         }
@@ -466,12 +462,12 @@ export function createWorld(city, random) {
     let activeOfficers = 0;
     for (const officer of officers) if (officer.active) activeOfficers += 1;
     if (activeOfficers < wantOfficers) {
-      const officer = freeOfficer();
+      const officer = nextFreeOfficer();
       if (officer) {
         const a = random() * Math.PI * 2;
         officer.active = true;
-        officer.x = clamp(player.x + Math.cos(a) * 420, 40, CITY.width - 40);
-        officer.y = clamp(player.y + Math.sin(a) * 420, 40, CITY.height - 40);
+        officer.x = clampNum(player.x + Math.cos(a) * 420, 40, CITY.width - 40);
+        officer.y = clampNum(player.y + Math.sin(a) * 420, 40, CITY.height - 40);
         officer.punchCooldown = 0;
       }
     }
@@ -494,7 +490,7 @@ export function createWorld(city, random) {
       } else {
         officer.lost = 0;
       }
-      officer.angle = angleTo(officer.x, officer.y, player.x, player.y);
+      officer.angle = angleBetween(officer.x, officer.y, player.x, player.y);
       officer.x += Math.cos(officer.angle) * POLICE.officerSpeed * dt;
       officer.y += Math.sin(officer.angle) * POLICE.officerSpeed * dt;
       city.collideCircle(officer, 12);
@@ -518,7 +514,7 @@ export function createWorld(city, random) {
         const t = state.missionTarget;
         if (Math.hypot(t.x - player.x, t.y - player.y) < 70) {
           state.missionStage = 1;
-          setTarget(DOCK.x, DOCK.y, 'PELABUHAN — deliver');
+          setMissionTarget(DOCK.x, DOCK.y, 'PELABUHAN — deliver');
           return EVENT_PICKUP;
         }
       }
@@ -535,16 +531,16 @@ export function createWorld(city, random) {
       if (car) {
         if (car.driver) {
           // Pull the driver out: he flees and calls the police.
-          const driver = freePed();
+          const driver = nextFreePed();
           if (driver) {
-            spawnPed(driver, car.x + 40, car.y, 'walker');
+            spawnWalker(driver, car.x + 40, car.y, 'walker');
             driver.fleeing = true;
             driver.fleeX = car.x + 400;
             driver.fleeY = car.y - 300;
           }
           car.driver = false;
           car.speed = 0;
-          addWanted(1);
+          raiseWanted(1);
           player.inCar = car;
           return EVENT_STEAL;
         }
@@ -579,15 +575,15 @@ export function createWorld(city, random) {
       }
       if (hitOfficer && (!hit || offD <= hitD)) {
         hitOfficer.active = false;
-        addWanted(2);
+        raiseWanted(2);
         return EVENT_PUNCH;
       }
       if (hit) {
         if (hit.kind === 'debtor' && state.missionIndex === 3 && state.missionStage === 0) {
           state.cash += 25000;
           state.missionStage = 1;
-          setTarget(player.x, player.y, 'LOSE THE COPS');
-          addWanted(2);
+          setMissionTarget(player.x, player.y, 'LOSE THE COPS');
+          raiseWanted(2);
           hit.fleeing = true;
           hit.fleeX = hit.x + 500;
           hit.fleeY = hit.y + 400;
@@ -597,16 +593,16 @@ export function createWorld(city, random) {
             const odx = officer.x - player.x;
             const ody = officer.y - player.y;
             const od = Math.hypot(odx, ody) || 1;
-            officer.x = clamp(officer.x + (odx / od) * 260, 40, CITY.width - 40);
-            officer.y = clamp(officer.y + (ody / od) * 260, 40, CITY.height - 40);
+            officer.x = clampNum(officer.x + (odx / od) * 260, 40, CITY.width - 40);
+            officer.y = clampNum(officer.y + (ody / od) * 260, 40, CITY.height - 40);
           }
-          showMessage('Budi paid up! +Rp 25.000 — now lose the cops.', 4);
+          setMessage('Budi paid up! +Rp 25.000 — now lose the cops.', 4);
           return EVENT_PUNCH;
         }
         hit.fleeing = true;
         hit.fleeX = hit.x + (hit.x - player.x) * 4;
         hit.fleeY = hit.y + (hit.y - player.y) * 4;
-        addWanted(1);
+        raiseWanted(1);
         return EVENT_PUNCH;
       }
     }
@@ -625,16 +621,16 @@ export function createWorld(city, random) {
     }
     car.speed -= car.speed * CAR.drag * dt;
     if (input.handbrakeHeld()) car.speed -= car.speed * CAR.handbrakeDrag * dt;
-    car.speed = clamp(car.speed, -CAR.maxReverse, CAR.maxSpeed);
+    car.speed = clampNum(car.speed, -CAR.maxReverse, CAR.maxSpeed);
     // A little steering even at low speed, so a stopped car can turn around.
-    const steerFactor = clamp(Math.abs(car.speed) / 160, 0.2, 1) * (car.speed < 0 ? -1 : 1);
+    const steerFactor = clampNum(Math.abs(car.speed) / 160, 0.2, 1) * (car.speed < 0 ? -1 : 1);
     car.angle += steer * CAR.steerRate * steerFactor * dt * (input.handbrakeHeld() ? 1.5 : 1);
     const nx = car.x + Math.cos(car.angle) * car.speed * dt;
     const ny = car.y + Math.sin(car.angle) * car.speed * dt;
     const pos = { x: nx, y: ny };
     const blocked = city.collideCircle(pos, 26);
     if (blocked && Math.abs(car.speed) > 220) {
-      damagePlayer(5);
+      hurtPlayer(5);
       car.speed *= -0.25;
       player.x = car.x;
       player.y = car.y;
@@ -653,7 +649,7 @@ export function createWorld(city, random) {
       const d = Math.hypot(ped.x - car.x, ped.y - car.y);
       if (d < 36 && Math.abs(car.speed) > 60) {
         ped.down = 2.5; // knocked down, then walks away later
-        addWanted(1);
+        raiseWanted(1);
         car.speed *= 0.8;
         return EVENT_HIT_PED;
       }
@@ -691,7 +687,7 @@ export function createWorld(city, random) {
     } else if (index === 1) {
       const sedan = cars.find((c) => c.active && c.mission);
       if (player.inCar && player.inCar.mission) {
-        setTarget(GARAGE.x + GARAGE.w / 2, GARAGE.y + GARAGE.h / 2, 'GARAGE — park it');
+        setMissionTarget(GARAGE.x + GARAGE.w / 2, GARAGE.y + GARAGE.h / 2, 'GARAGE — park it');
         // Distance to the garage itself, not the stale sedan marker.
         const gd = Math.hypot(GARAGE.x + GARAGE.w / 2 - px, GARAGE.y + GARAGE.h / 2 - py);
         if (gd < 90) return completeMission();
@@ -751,7 +747,7 @@ export function createWorld(city, random) {
         if (state.calmTimer >= WANTED.decaySeconds) {
           state.wanted -= 1;
           state.calmTimer = 0;
-          showMessage('The heat is off — wanted level down.', 3);
+          setMessage('The heat is off — wanted level down.', 3);
         }
       } else {
         state.calmTimer = 0;
@@ -784,16 +780,16 @@ export function createWorld(city, random) {
 
   function applyBusted() {
     const lost = respawn(true);
-    showMessage(`BUSTED! The cops took Rp ${lost.toLocaleString('en-US').replace(/,/g, '.')}.`, 4);
+    setMessage(`BUSTED! The cops took Rp ${lost.toLocaleString('en-US').replace(/,/g, '.')}.`, 4);
     return EVENT_BUSTED;
   }
 
   function applyWasted() {
     const lost = respawn(false);
-    showMessage(`WASTED! You lost Rp ${lost.toLocaleString('en-US').replace(/,/g, '.')}.`, 4);
+    setMessage(`WASTED! You lost Rp ${lost.toLocaleString('en-US').replace(/,/g, '.')}.`, 4);
     return EVENT_WASTED;
   }
 
   reset();
-  return { state, reset, step, setupMission, advanceMission, applyBusted, applyWasted, showMessage };
+  return { state, reset, step, setupMission, advanceMission, applyBusted, applyWasted, showMessage: setMessage };
 }

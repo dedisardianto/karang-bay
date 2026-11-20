@@ -1,14 +1,15 @@
-// KARANG BAY — every tuning number and colour in one place.
-// The city is a fixed 3200x2400 world; the camera shows a 1280x720 window of it
-// and scales to the browser window, so no rule below depends on the screen size.
+// KARANG BAY — all tuning numbers and colours live here, in one place.
+// The world is a fixed 3200 by 2400 map. The camera shows a 1280 by 720 slice
+// of it and scales that slice to the browser window, so no value below cares
+// about the size of the screen it runs on.
 
 export const FIELD = { width: 1280, height: 720 };
 export const CITY = { width: 3200, height: 2400 };
 
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
+/** One fixed simulation step, in seconds: 60 updates a second at any display rate. */
 export const STEP = 1 / 60;
 
-/** Road centrelines of the city grid (vertical x, horizontal y) and road width. */
+/** The city grid: road centrelines (vertical x, horizontal y) and road width. */
 export const ROADS = {
   vertical: [400, 1000, 1600, 2200, 2800],
   horizontal: [400, 950, 1500, 2050],
@@ -61,31 +62,31 @@ export const MISSIONS = [
   {
     name: 'First Delivery',
     brief: 'Pak Darma: pick up the package at PASAR, deliver it to PELABUHAN. Fast.',
-    reward: 50000,
+    reward: 50_000,
     timeLimit: 100,
   },
   {
     name: 'Borrowed Wheels',
     brief: 'Pak Darma: the blue sedan near PERUMAHAN is "borrowed". Bring it to the garage in KAMPUNG.',
-    reward: 75000,
+    reward: 75_000,
     timeLimit: 130,
   },
   {
     name: 'Heat Wave',
     brief: 'Pak Darma: the cops are hot. Survive wanted 3 for 45 seconds — or reach the hideout.',
-    reward: 100000,
+    reward: 100_000,
     timeLimit: 90,
   },
   {
     name: 'Debt Collection',
     brief: 'Pak Darma: Budi owes me. Find him at the park, collect — then lose the cops.',
-    reward: 125000,
+    reward: 125_000,
     timeLimit: 150,
   },
   {
     name: 'The Last Bridge',
     brief: 'Pak Darma: one last run. Wanted 4 — drive across JEMBATAN and out of Karang Bay.',
-    reward: 250000,
+    reward: 250_000,
     timeLimit: 120,
   },
 ];
@@ -129,11 +130,12 @@ export const PALETTE = {
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-/** Where the best cash and the saved run are kept between visits (this browser only). */
+/** localStorage keys for the best cash and the saved run (this browser only). */
 export const BEST_KEY = 'karang-bay.best';
 export const SAVE_KEY = 'karang-bay.save';
 
-/** Format rupiah the way the HUD shows it: Rp 125.000. */
+/** Rupiah the way the HUD prints it: Rp 125.000. */
 export function formatRp(value) {
-  return 'Rp ' + Math.floor(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const whole = Math.floor(value).toString();
+  return 'Rp ' + whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }

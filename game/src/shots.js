@@ -1,24 +1,25 @@
-// The screenshot scenes behind ?shot=start|play|chase|end. Each one plays the real
-// rules forward from a fresh world for a fixed number of steps, steered by a simple
-// autopilot (walk to the nearest car, get in, drive at the mission marker), so the
-// frame is what real play looks like and the same seed always gives the same frame.
+// The screenshot scenes behind ?shot=start|play|chase|end. Each one plays the
+// real rules forward from a fresh world for a fixed number of steps, steered by
+// a simple autopilot (walk to the nearest car, get in, drive at the mission
+// marker), so the frame is what real play looks like and the same seed always
+// gives the same frame.
 import { STEP } from './config.js';
 import { ACTION_ENTER } from './input.js';
-import { EVENT_MISSION, EVENT_VICTORY } from './world.js';
+import { EVENT_VICTORY } from './world.js';
 import { SCREEN_MISSION, SCREEN_PLAY, SCREEN_TITLE, SCREEN_VICTORY } from './render.js';
 
 const START_SECONDS = 6;
 const DRIVE_SECONDS = 26;
 const CHASE_SECONDS = 8;
 
-function wrapAngle(angle) {
+function normalizeAngle(angle) {
   while (angle > Math.PI) angle -= Math.PI * 2;
   while (angle < -Math.PI) angle += Math.PI * 2;
   return angle;
 }
 
 /** An input the autopilot drives: walk to the nearest car, enter it, drive at the marker. */
-function makeAutopilot(world) {
+function buildAutopilot(world) {
   let queued = 0;
   let enterQueued = false;
   const input = {
@@ -59,7 +60,7 @@ function makeAutopilot(world) {
       if (!car) return 0;
       const t = state.missionTarget;
       const want = Math.atan2(t.y - car.y, t.x - car.x);
-      const diff = wrapAngle(want - car.angle);
+      const diff = normalizeAngle(want - car.angle);
       return diff > 0.12 ? 1 : diff < -0.12 ? -1 : 0;
     },
     throttle() {
@@ -68,7 +69,7 @@ function makeAutopilot(world) {
       if (!car) return 0;
       const t = state.missionTarget;
       const want = Math.atan2(t.y - car.y, t.x - car.x);
-      return Math.abs(wrapAngle(want - car.angle)) > 1.4 ? 0 : 1;
+      return Math.abs(normalizeAngle(want - car.angle)) > 1.4 ? 0 : 1;
     },
     running() {
       return true;
@@ -85,7 +86,7 @@ function makeAutopilot(world) {
   return input;
 }
 
-function driveFor(world, input, seconds, onStep) {
+function simulate(world, input, seconds, onStep) {
   let events = 0;
   for (let i = 0; i < seconds / STEP; i += 1) {
     events |= world.step(STEP, input, input.takeActions(), false);
@@ -107,18 +108,18 @@ export function stageShot(name, world) {
     return { screen: SCREEN_TITLE, best: 250000, panelData: null };
   }
 
-  const input = makeAutopilot(world);
+  const input = buildAutopilot(world);
   if (name === 'play') {
-    driveFor(world, input, DRIVE_SECONDS);
+    simulate(world, input, DRIVE_SECONDS);
     world.state.wanted = 2;
-    driveFor(world, input, CHASE_SECONDS);
+    simulate(world, input, CHASE_SECONDS);
     return { screen: SCREEN_PLAY, best: 125000, panelData: null };
   }
 
   if (name === 'chase') {
-    driveFor(world, input, 14);
+    simulate(world, input, 14);
     world.state.wanted = 4;
-    driveFor(world, input, CHASE_SECONDS);
+    simulate(world, input, CHASE_SECONDS);
     return { screen: SCREEN_PLAY, best: 300000, panelData: null };
   }
 
@@ -126,7 +127,7 @@ export function stageShot(name, world) {
   world.state.missionIndex = 4;
   world.setupMission();
   world.state.cash = 425000;
-  let events = driveFor(world, input, 45);
+  let events = simulate(world, input, 45);
   if (!(events & EVENT_VICTORY)) {
     // Autopilot did not make it: put the car on the bridge approach and finish
     // the run through the real rules.
@@ -137,7 +138,7 @@ export function stageShot(name, world) {
       car.angle = -Math.PI / 2;
       car.speed = 200;
     }
-    events = driveFor(world, input, 10);
+    events = simulate(world, input, 10);
   }
   if (events & EVENT_VICTORY) {
     return { screen: SCREEN_VICTORY, best: 675000, panelData: null };

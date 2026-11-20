@@ -1,12 +1,13 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s
-// steps (several in a slow frame, none in a fast one), and the renderer paints what is
-// there. The game moves between seven screens: title, play, paused, busted, wasted,
-// mission complete and victory. Progress (cash + mission) is saved to localStorage so
-// a run can continue; the best cash is kept separately.
+// Boot and the one loop: input is read every frame, the world advances in
+// fixed 1/60 s steps (several in a slow frame, none in a fast one), and the
+// renderer paints what is there. The game moves between seven screens: title,
+// play, paused, busted, wasted, mission complete and victory. Progress (cash +
+// mission) is saved to localStorage so a run can continue; the best cash is
+// kept separately.
 //
-// ?seed=N fixes the city and traffic. ?shot=start|play|chase|end (with &seed=N) stages
-// that scene instead of running the loop, paints it twice and sets window.__shotReady
-// for a screenshot.
+// ?seed=N fixes the city and traffic. ?shot=start|play|chase|end (with &seed=N)
+// stages that scene instead of running the loop, paints it twice and sets
+// window.__shotReady for a screenshot.
 import { BEST_KEY, SAVE_KEY, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createCity } from './city.js';
@@ -39,7 +40,7 @@ const world = createWorld(city, createRandom(seed + 101));
 const renderer = createRenderer(canvas, city);
 const audio = createAudio();
 
-function readBest() {
+function loadBest() {
   try {
     return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
   } catch {
@@ -47,7 +48,7 @@ function readBest() {
   }
 }
 
-function saveBest(value) {
+function storeBest(value) {
   try {
     window.localStorage.setItem(BEST_KEY, String(value));
   } catch {
@@ -55,7 +56,7 @@ function saveBest(value) {
   }
 }
 
-function readSave() {
+function loadSave() {
   try {
     const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
@@ -67,7 +68,7 @@ function readSave() {
   }
 }
 
-function writeSave() {
+function storeSave() {
   try {
     window.localStorage.setItem(SAVE_KEY, JSON.stringify({
       cash: world.state.cash,
@@ -78,7 +79,7 @@ function writeSave() {
   }
 }
 
-function clearSave() {
+function dropSave() {
   try {
     window.localStorage.removeItem(SAVE_KEY);
   } catch {
@@ -86,7 +87,7 @@ function clearSave() {
   }
 }
 
-function runShot(name) {
+function playShot(name) {
   const scene = stageShot(name, world);
   let painted = 0;
   function paint() {
@@ -98,11 +99,11 @@ function runShot(name) {
   requestAnimationFrame(paint);
 }
 
-function runGame() {
+function playGame() {
   const input = createInput(canvas);
   let screen = SCREEN_TITLE;
-  let best = readBest();
-  let save = readSave();
+  let best = loadBest();
+  let save = loadSave();
   let accumulator = 0;
   let last = performance.now();
   let time = 0;
@@ -120,19 +121,19 @@ function runGame() {
     status.textContent = message;
   }
 
-  function startFresh() {
+  function beginFresh() {
     world.reset();
     world.state.cash = 0;
     world.state.missionIndex = 0;
     world.setupMission();
-    clearSave();
+    dropSave();
     victoryShown = false;
     accumulator = 0;
     screen = SCREEN_PLAY;
     announce('Playing. Mission 1: First Delivery.');
   }
 
-  function startContinue() {
+  function beginContinued() {
     world.reset();
     world.state.cash = save.cash;
     world.state.missionIndex = Math.min(save.missionIndex, 4);
@@ -143,42 +144,42 @@ function runGame() {
     announce(`Continuing. Mission ${world.state.missionIndex + 1}.`);
   }
 
-  function toBusted() {
+  function showBusted() {
     world.applyBusted();
     audio.busted();
     screen = SCREEN_BUSTED;
-    writeSave();
+    storeSave();
     announce('Busted. The police caught Rian.');
   }
 
-  function toWasted() {
+  function showWasted() {
     world.applyWasted();
     audio.busted();
     screen = SCREEN_WASTED;
-    writeSave();
+    storeSave();
     announce('Wasted. Rian went down.');
   }
 
-  function toMissionComplete() {
+  function showMissionComplete() {
     audio.jingle();
     screen = SCREEN_MISSION;
-    writeSave();
+    storeSave();
     announce(`Mission complete. Cash ${world.state.cash}.`);
   }
 
-  function toVictory() {
+  function showVictory() {
     audio.victory();
     screen = SCREEN_VICTORY;
     victoryShown = true;
     if (world.state.cash > best) {
       best = world.state.cash;
-      saveBest(best);
+      storeBest(best);
     }
-    clearSave();
+    dropSave();
     announce('Victory. Rian crossed the bridge out of Karang Bay.');
   }
 
-  function handleActions(actions) {
+  function consumeActions(actions) {
     // Returns the actions this screen did not consume, for the world to use.
     if (actions & ACTION_MUTE) {
       audio.setMuted(!audio.isMuted());
@@ -188,12 +189,12 @@ function runGame() {
     if (screen === SCREEN_TITLE) {
       if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
         audio.unlock();
-        if (save) startContinue();
-        else startFresh();
+        if (save) beginContinued();
+        else beginFresh();
       } else if (actions & ACTION_RESTART) {
         audio.unlock();
         save = null;
-        startFresh();
+        beginFresh();
       }
       return 0;
     }
@@ -201,7 +202,7 @@ function runGame() {
       if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
         audio.unlock();
         const won = world.advanceMission();
-        if (won) toVictory();
+        if (won) showVictory();
         else {
           screen = SCREEN_PLAY;
           announce(`Mission ${world.state.missionIndex + 1}.`);
@@ -212,12 +213,12 @@ function runGame() {
     if (screen === SCREEN_BUSTED || screen === SCREEN_WASTED || screen === SCREEN_VICTORY) {
       if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
         audio.unlock();
-        save = readSave();
+        save = loadSave();
         if (screen === SCREEN_VICTORY) {
           save = null;
-          startFresh();
-        } else if (save) startContinue();
-        else startFresh();
+          beginFresh();
+        } else if (save) beginContinued();
+        else beginFresh();
       }
       return 0;
     }
@@ -237,18 +238,18 @@ function runGame() {
     return actions;
   }
 
-  function react(events) {
+  function reactToEvents(events) {
     if (events & EVENT_PICKUP) audio.pickup();
     if (events & EVENT_STEAL) audio.steal();
     if (events & EVENT_PUNCH) audio.punch();
     if (events & (EVENT_CRASH | EVENT_HIT_PED)) audio.crash();
-    if (events & EVENT_BUSTED) toBusted();
-    else if (events & EVENT_WASTED) toWasted();
-    else if (events & EVENT_VICTORY) toMissionComplete();
-    else if (events & EVENT_MISSION) toMissionComplete();
+    if (events & EVENT_BUSTED) showBusted();
+    else if (events & EVENT_WASTED) showWasted();
+    else if (events & EVENT_VICTORY) showMissionComplete();
+    else if (events & EVENT_MISSION) showMissionComplete();
   }
 
-  function step(actions) {
+  function advance(actions) {
     if (screen === SCREEN_TITLE) {
       world.step(STEP, null, 0, true);
       return;
@@ -258,19 +259,19 @@ function runGame() {
     time += STEP;
     audio.engine(world.state.player.inCar ? Math.abs(world.state.player.inCar.speed) / 520 : 0, !!world.state.player.inCar);
     audio.siren(world.state.wanted, STEP);
-    react(events);
+    reactToEvents(events);
   }
 
-  function frame(now) {
-    requestAnimationFrame(frame);
+  function tick(now) {
+    requestAnimationFrame(tick);
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     const actions = input.takeActions();
-    const leftover = handleActions(actions);
+    const leftover = consumeActions(actions);
     if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
       let first = true;
       while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step(first ? leftover : 0);
+        advance(first ? leftover : 0);
         first = false;
         accumulator -= STEP;
       }
@@ -289,8 +290,8 @@ function runGame() {
   });
 
   announce('Karang Bay. Press Space or click to start.');
-  requestAnimationFrame(frame);
+  requestAnimationFrame(tick);
 }
 
-if (shot) runShot(shot);
-else runGame();
+if (shot) playShot(shot);
+else playGame();
