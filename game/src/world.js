@@ -64,16 +64,16 @@ export function createWorld(city, random) {
   }
   const policeCars = [];
   for (let i = 0; i < POLICE.maxCars; i += 1) {
-    policeCars.push({ active: false, x: 0, y: 0, angle: 0, speed: 0, ramCooldown: 0 });
+    policeCars.push({ active: false, x: 0, y: 0, angle: 0, speed: 0, ramCooldown: 0, lost: 0 });
   }
   const officers = [];
   for (let i = 0; i < POLICE.maxOfficers; i += 1) {
-    officers.push({ active: false, x: 0, y: 0, angle: 0, punchCooldown: 0 });
+    officers.push({ active: false, x: 0, y: 0, angle: 0, punchCooldown: 0, lost: 0 });
   }
 
   const state = {
     player, cars, peds, policeCars, officers,
-    cash: 0, wanted: 0, wantedTimer: 0, calmTimer: 0,
+    cash: 0, wanted: 0, wantedTimer: 0, calmTimer: 0, policeCooldown: 0,
     missionIndex: 0, missionStage: 0, missionTimer: 0, surviveTimer: 0,
     missionTarget: { x: PLAZA.x + PLAZA.w / 2, y: PLAZA.y + PLAZA.h / 2, label: 'PASAR' },
     missionDone: false, elapsed: 0, message: '', messageTimer: 0,
@@ -261,6 +261,7 @@ export function createWorld(city, random) {
     state.wanted = 0;
     state.wantedTimer = 0;
     state.calmTimer = 0;
+    state.policeCooldown = 0;
     state.missionIndex = 0;
     state.missionDone = false;
     state.elapsed = 0;
@@ -383,10 +384,11 @@ export function createWorld(city, random) {
   }
 
   function stepPolice(dt) {
+    state.policeCooldown = Math.max(0, state.policeCooldown - dt);
     const wantCars = policeWanted();
     let activeCars = 0;
     for (const car of policeCars) if (car.active) activeCars += 1;
-    if (activeCars < wantCars) {
+    if (activeCars < wantCars && state.policeCooldown <= 0) {
       const car = freePoliceCar();
       if (car) {
         // Spawn on a road node away from the player.
@@ -408,6 +410,7 @@ export function createWorld(city, random) {
         car.angle = angleTo(node.x, node.y, px, py);
         car.speed = 0;
         car.ramCooldown = 0;
+        car.lost = 0;
       }
     }
     const px = player.inCar ? player.inCar.x : player.x;
@@ -419,6 +422,18 @@ export function createWorld(city, random) {
         continue;
       }
       car.ramCooldown = Math.max(0, car.ramCooldown - dt);
+      // Lose the trail: far away and unseen for a while, the chase gives up.
+      const chaseDist = Math.hypot(car.x - px, car.y - py);
+      if (chaseDist > 950) {
+        car.lost += dt;
+        if (car.lost > 5) {
+          car.active = false;
+          state.policeCooldown = Math.max(state.policeCooldown, 10);
+          continue;
+        }
+      } else {
+        car.lost = 0;
+      }
       const targetAngle = angleTo(car.x, car.y, px, py);
       car.angle = turnToward(car.angle, targetAngle, 3.2 * dt);
       car.speed = Math.min(POLICE.carSpeed, car.speed + 500 * dt);
@@ -462,6 +477,16 @@ export function createWorld(city, random) {
       officer.punchCooldown = Math.max(0, officer.punchCooldown - dt);
       const d = Math.hypot(player.x - officer.x, player.y - officer.y);
       if (d < POLICE.bustRange) return EVENT_BUSTED;
+      if (d > 700) {
+        officer.lost += dt;
+        if (officer.lost > 4) {
+          officer.active = false;
+          state.policeCooldown = Math.max(state.policeCooldown, 8);
+          continue;
+        }
+      } else {
+        officer.lost = 0;
+      }
       officer.angle = angleTo(officer.x, officer.y, player.x, player.y);
       officer.x += Math.cos(officer.angle) * POLICE.officerSpeed * dt;
       officer.y += Math.sin(officer.angle) * POLICE.officerSpeed * dt;
@@ -640,7 +665,9 @@ export function createWorld(city, random) {
       const sedan = cars.find((c) => c.active && c.mission);
       if (player.inCar && player.inCar.mission) {
         setTarget(GARAGE.x + GARAGE.w / 2, GARAGE.y + GARAGE.h / 2, 'GARAGE — park it');
-        if (dist < 90) return completeMission();
+        // Distance to the garage itself, not the stale sedan marker.
+        const gd = Math.hypot(GARAGE.x + GARAGE.w / 2 - px, GARAGE.y + GARAGE.h / 2 - py);
+        if (gd < 90) return completeMission();
       } else if (!sedan) {
         setupMission(); // sedan lost somehow; respawn it
       }
