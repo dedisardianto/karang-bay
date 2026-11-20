@@ -108,6 +108,13 @@ function runGame() {
   let time = 0;
   let victoryShown = false;
 
+  // Debug hook for playtesting: a live read-only view of the run.
+  window.__karang = {
+    state: world.state,
+    get screen() { return screen; },
+    get best() { return best; },
+  };
+
   // Screen readers (and anyone watching the page's text) hear the screen changes.
   function announce(message) {
     status.textContent = message;
