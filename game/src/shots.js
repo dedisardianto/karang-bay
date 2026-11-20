@@ -20,11 +20,15 @@ function wrapAngle(angle) {
 /** An input the autopilot drives: walk to the nearest car, enter it, drive at the marker. */
 function makeAutopilot(world) {
   let queued = 0;
+  let enterQueued = false;
   const input = {
     steer() {
       const state = world.state;
       const player = state.player;
-      if (player.inCar) return { x: 0, y: 0 };
+      if (player.inCar) {
+        enterQueued = false;
+        return { x: 0, y: 0 };
+      }
       let best = null;
       let bestD = Infinity;
       for (const car of state.cars) {
@@ -39,7 +43,14 @@ function makeAutopilot(world) {
       const dx = best.x - player.x;
       const dy = best.y - player.y;
       const len = Math.hypot(dx, dy) || 1;
-      if (bestD < 60) queued |= ACTION_ENTER;
+      if (bestD >= 60) {
+        enterQueued = false;
+      } else if (!enterQueued) {
+        // Queue ENTER once per approach: re-queueing it every step would hand a
+        // later step a stale ENTER that exits the car right after entering it.
+        queued |= ACTION_ENTER;
+        enterQueued = true;
+      }
       return { x: dx / len, y: dy / len };
     },
     direction() {
