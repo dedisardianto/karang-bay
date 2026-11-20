@@ -1,0 +1,281 @@
+// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s
+// steps (several in a slow frame, none in a fast one), and the renderer paints what is
+// there. The game moves between seven screens: title, play, paused, busted, wasted,
+// mission complete and victory. Progress (cash + mission) is saved to localStorage so
+// a run can continue; the best cash is kept separately.
+//
+// ?seed=N fixes the city and traffic. ?shot=start|play|chase|end (with &seed=N) stages
+// that scene instead of running the loop, paints it twice and sets window.__shotReady
+// for a screenshot.
+import { BEST_KEY, SAVE_KEY, STEP } from './config.js';
+import { createRandom } from './random.js';
+import { createCity } from './city.js';
+import {
+  createWorld, EVENT_BUSTED, EVENT_CRASH, EVENT_HIT_PED, EVENT_MISSION, EVENT_PICKUP,
+  EVENT_PUNCH, EVENT_STEAL, EVENT_VICTORY, EVENT_WASTED,
+} from './world.js';
+import {
+  ACTION_CONFIRM, ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_RESTART, createInput,
+} from './input.js';
+import {
+  createRenderer, SCREEN_BUSTED, SCREEN_MISSION, SCREEN_PAUSED, SCREEN_PLAY,
+  SCREEN_TITLE, SCREEN_VICTORY, SCREEN_WASTED,
+} from './render.js';
+import { createAudio } from './audio.js';
+import { stageShot } from './shots.js';
+
+/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
+const MAX_FRAME = 0.25;
+
+const params = new URLSearchParams(window.location.search);
+const shot = params.get('shot');
+const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
+const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+
+const canvas = document.getElementById('game');
+const status = document.getElementById('status');
+const city = createCity(createRandom(seed));
+const world = createWorld(city, createRandom(seed + 101));
+const renderer = createRenderer(canvas, city);
+const audio = createAudio();
+
+function readBest() {
+  try {
+    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveBest(value) {
+  try {
+    window.localStorage.setItem(BEST_KEY, String(value));
+  } catch {
+    // Storage can be off (private windows): the best cash then lasts this visit only.
+  }
+}
+
+function readSave() {
+  try {
+    const raw = window.localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const save = JSON.parse(raw);
+    if (!Number.isInteger(save.missionIndex) || !Number.isFinite(save.cash)) return null;
+    return save;
+  } catch {
+    return null;
+  }
+}
+
+function writeSave() {
+  try {
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify({
+      cash: world.state.cash,
+      missionIndex: world.state.missionIndex,
+    }));
+  } catch {
+    // Storage can be off: the run then lasts this visit only.
+  }
+}
+
+function clearSave() {
+  try {
+    window.localStorage.removeItem(SAVE_KEY);
+  } catch {
+    // Nothing to clear.
+  }
+}
+
+function runShot(name) {
+  const scene = stageShot(name, world);
+  let painted = 0;
+  function paint() {
+    renderer.draw(world.state, scene.screen, scene.best, scene.panelData, performance.now() / 1000);
+    painted += 1;
+    if (painted < 2) requestAnimationFrame(paint);
+    else window.__shotReady = true;
+  }
+  requestAnimationFrame(paint);
+}
+
+function runGame() {
+  const input = createInput(canvas);
+  let screen = SCREEN_TITLE;
+  let best = readBest();
+  let save = readSave();
+  let accumulator = 0;
+  let last = performance.now();
+  let time = 0;
+  let victoryShown = false;
+
+  // Screen readers (and anyone watching the page's text) hear the screen changes.
+  function announce(message) {
+    status.textContent = message;
+  }
+
+  function startFresh() {
+    world.reset();
+    world.state.cash = 0;
+    world.state.missionIndex = 0;
+    world.setupMission();
+    clearSave();
+    victoryShown = false;
+    accumulator = 0;
+    screen = SCREEN_PLAY;
+    announce('Playing. Mission 1: First Delivery.');
+  }
+
+  function startContinue() {
+    world.reset();
+    world.state.cash = save.cash;
+    world.state.missionIndex = Math.min(save.missionIndex, 4);
+    world.setupMission();
+    victoryShown = false;
+    accumulator = 0;
+    screen = SCREEN_PLAY;
+    announce(`Continuing. Mission ${world.state.missionIndex + 1}.`);
+  }
+
+  function toBusted() {
+    world.applyBusted();
+    audio.busted();
+    screen = SCREEN_BUSTED;
+    writeSave();
+    announce('Busted. The police caught Rian.');
+  }
+
+  function toWasted() {
+    world.applyWasted();
+    audio.busted();
+    screen = SCREEN_WASTED;
+    writeSave();
+    announce('Wasted. Rian went down.');
+  }
+
+  function toMissionComplete() {
+    audio.jingle();
+    screen = SCREEN_MISSION;
+    writeSave();
+    announce(`Mission complete. Cash ${world.state.cash}.`);
+  }
+
+  function toVictory() {
+    audio.victory();
+    screen = SCREEN_VICTORY;
+    victoryShown = true;
+    if (world.state.cash > best) {
+      best = world.state.cash;
+      saveBest(best);
+    }
+    clearSave();
+    announce('Victory. Rian crossed the bridge out of Karang Bay.');
+  }
+
+  function handleActions() {
+    const actions = input.takeActions();
+    if (actions & ACTION_MUTE) {
+      audio.setMuted(!audio.isMuted());
+      announce(audio.isMuted() ? 'Sound off.' : 'Sound on.');
+    }
+    if (screen === SCREEN_TITLE) {
+      if (actions & (ACTION_CONFIRM | ACTION_ENTER)) {
+        audio.unlock();
+        if (save) startContinue();
+        else startFresh();
+      } else if (actions & ACTION_RESTART) {
+        audio.unlock();
+        save = null;
+        startFresh();
+      }
+      return;
+    }
+    if (screen === SCREEN_MISSION) {
+      if (actions & (ACTION_CONFIRM | ACTION_ENTER)) {
+        audio.unlock();
+        const won = world.advanceMission();
+        if (won) toVictory();
+        else {
+          screen = SCREEN_PLAY;
+          announce(`Mission ${world.state.missionIndex + 1}.`);
+        }
+      }
+      return;
+    }
+    if (screen === SCREEN_BUSTED || screen === SCREEN_WASTED || screen === SCREEN_VICTORY) {
+      if (actions & (ACTION_CONFIRM | ACTION_ENTER)) {
+        audio.unlock();
+        save = readSave();
+        if (screen === SCREEN_VICTORY) {
+          save = null;
+          startFresh();
+        } else if (save) startContinue();
+        else startFresh();
+      }
+      return;
+    }
+    if (actions & ACTION_RESTART && screen === SCREEN_PLAY) {
+      world.setupMission();
+      announce('Mission restarted.');
+    } else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
+      screen = SCREEN_PAUSED;
+      announce('Paused.');
+    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
+      screen = SCREEN_PLAY;
+      announce('Playing.');
+    }
+  }
+
+  function react(events) {
+    if (events & EVENT_PICKUP) audio.pickup();
+    if (events & EVENT_STEAL) audio.steal();
+    if (events & EVENT_PUNCH) audio.punch();
+    if (events & (EVENT_CRASH | EVENT_HIT_PED)) audio.crash();
+    if (events & EVENT_BUSTED) toBusted();
+    else if (events & EVENT_WASTED) toWasted();
+    else if (events & EVENT_VICTORY) toMissionComplete();
+    else if (events & EVENT_MISSION) toMissionComplete();
+  }
+
+  function step() {
+    if (screen === SCREEN_TITLE) {
+      world.step(STEP, null, true);
+      return;
+    }
+    if (screen !== SCREEN_PLAY) return;
+    const events = world.step(STEP, input, false);
+    time += STEP;
+    audio.engine(world.state.player.inCar ? Math.abs(world.state.player.inCar.speed) / 520 : 0, !!world.state.player.inCar);
+    audio.siren(world.state.wanted, STEP);
+    react(events);
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
+    last = now;
+    handleActions();
+    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
+      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
+        step();
+        accumulator -= STEP;
+      }
+    } else {
+      accumulator = 0;
+    }
+    renderer.draw(world.state, screen, best, { save, missionIndex: world.state.missionIndex }, time);
+  }
+
+  // Leaving the tab pauses a running game rather than letting the city move unseen.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && screen === SCREEN_PLAY) {
+      screen = SCREEN_PAUSED;
+      announce('Paused.');
+    }
+  });
+
+  announce('Karang Bay. Press Space or click to start.');
+  requestAnimationFrame(frame);
+}
+
+if (shot) runShot(shot);
+else runGame();
