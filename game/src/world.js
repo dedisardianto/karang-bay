@@ -512,6 +512,16 @@ export function createWorld(city, random) {
     player.punchCooldown = Math.max(0, player.punchCooldown - dt);
 
     if (actions & ACTION_ENTER) {
+      // The mission pickup comes first: at the Pasar marker, E picks up the
+      // package even when a parked car is standing next to it.
+      if (state.missionIndex === 0 && state.missionStage === 0) {
+        const t = state.missionTarget;
+        if (Math.hypot(t.x - player.x, t.y - player.y) < 70) {
+          state.missionStage = 1;
+          setTarget(DOCK.x, DOCK.y, 'PELABUHAN — deliver');
+          return EVENT_PICKUP;
+        }
+      }
       // The mission car always wins when it is in reach — stealing a random
       // passing car by mistake would strand the mission.
       let car = null;
@@ -541,15 +551,6 @@ export function createWorld(city, random) {
         player.inCar = car;
         car.speed = 0;
         return 0;
-      }
-      // Interact with the mission target on foot (pickup).
-      if (state.missionIndex === 0 && state.missionStage === 0) {
-        const t = state.missionTarget;
-        if (Math.hypot(t.x - player.x, t.y - player.y) < 70) {
-          state.missionStage = 1;
-          setTarget(DOCK.x, DOCK.y, 'PELABUHAN — deliver');
-          return EVENT_PICKUP;
-        }
       }
     }
 
