@@ -216,6 +216,9 @@ export function createWorld(city, random) {
     const mission = MISSIONS[state.missionIndex];
     state.cash += mission.reward;
     state.missionDone = true;
+    // A breather between jobs: Pak Darma patches Rian up and the heat cools a little.
+    player.health = Math.min(PLAYER.health, player.health + 50);
+    state.wanted = Math.max(0, state.wanted - 1);
     showMessage(`Mission complete! +${mission.reward.toLocaleString('en-US').replace(/,/g, '.')} Rp`, 3);
     return EVENT_MISSION;
   }
