@@ -431,9 +431,9 @@ export function createWorld(city, random) {
       car.ramCooldown = Math.max(0, car.ramCooldown - dt);
       // Lose the trail: far away and unseen for a while, the chase gives up.
       const chaseDist = Math.hypot(car.x - px, car.y - py);
-      if (chaseDist > 950) {
+      if (chaseDist > 800) {
         car.lost += dt;
-        if (car.lost > 5) {
+        if (car.lost > 4) {
           car.active = false;
           state.policeCooldown = Math.max(state.policeCooldown, 10);
           continue;
@@ -634,7 +634,7 @@ export function createWorld(city, random) {
     const pos = { x: nx, y: ny };
     const blocked = city.collideCircle(pos, 26);
     if (blocked && Math.abs(car.speed) > 220) {
-      damagePlayer(8);
+      damagePlayer(5);
       car.speed *= -0.25;
       player.x = car.x;
       player.y = car.y;
