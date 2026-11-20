@@ -591,6 +591,15 @@ export function createWorld(city, random) {
           hit.fleeing = true;
           hit.fleeX = hit.x + 500;
           hit.fleeY = hit.y + 400;
+          // The cops hang back as Budi goes down — Rian gets a head start to run.
+          for (const officer of officers) {
+            if (!officer.active) continue;
+            const odx = officer.x - player.x;
+            const ody = officer.y - player.y;
+            const od = Math.hypot(odx, ody) || 1;
+            officer.x = clamp(officer.x + (odx / od) * 260, 40, CITY.width - 40);
+            officer.y = clamp(officer.y + (ody / od) * 260, 40, CITY.height - 40);
+          }
           showMessage('Budi paid up! +Rp 25.000 — now lose the cops.', 4);
           return EVENT_PUNCH;
         }
