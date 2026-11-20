@@ -77,7 +77,7 @@ function makeAutopilot(world) {
 function driveFor(world, input, seconds, onStep) {
   let events = 0;
   for (let i = 0; i < seconds / STEP; i += 1) {
-    events |= world.step(STEP, input, false);
+    events |= world.step(STEP, input, input.takeActions(), false);
     if (onStep) onStep(events);
     if (events & EVENT_VICTORY) break;
   }
@@ -92,7 +92,7 @@ function driveFor(world, input, seconds, onStep) {
 export function stageShot(name, world) {
   world.reset();
   if (name !== 'play' && name !== 'chase' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, null, true);
+    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, null, 0, true);
     return { screen: SCREEN_TITLE, best: 250000, panelData: null };
   }
 

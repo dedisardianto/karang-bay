@@ -15,7 +15,7 @@ import {
   EVENT_PUNCH, EVENT_STEAL, EVENT_VICTORY, EVENT_WASTED,
 } from './world.js';
 import {
-  ACTION_CONFIRM, ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_RESTART, createInput,
+  ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, ACTION_RESTART, createInput,
 } from './input.js';
 import {
   createRenderer, SCREEN_BUSTED, SCREEN_MISSION, SCREEN_PAUSED, SCREEN_PLAY,
@@ -178,14 +178,15 @@ function runGame() {
     announce('Victory. Rian crossed the bridge out of Karang Bay.');
   }
 
-  function handleActions() {
-    const actions = input.takeActions();
+  function handleActions(actions) {
+    // Returns the actions this screen did not consume, for the world to use.
     if (actions & ACTION_MUTE) {
       audio.setMuted(!audio.isMuted());
       announce(audio.isMuted() ? 'Sound off.' : 'Sound on.');
+      actions &= ~ACTION_MUTE;
     }
     if (screen === SCREEN_TITLE) {
-      if (actions & (ACTION_CONFIRM | ACTION_ENTER)) {
+      if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
         audio.unlock();
         if (save) startContinue();
         else startFresh();
@@ -194,10 +195,10 @@ function runGame() {
         save = null;
         startFresh();
       }
-      return;
+      return 0;
     }
     if (screen === SCREEN_MISSION) {
-      if (actions & (ACTION_CONFIRM | ACTION_ENTER)) {
+      if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
         audio.unlock();
         const won = world.advanceMission();
         if (won) toVictory();
@@ -206,10 +207,10 @@ function runGame() {
           announce(`Mission ${world.state.missionIndex + 1}.`);
         }
       }
-      return;
+      return 0;
     }
     if (screen === SCREEN_BUSTED || screen === SCREEN_WASTED || screen === SCREEN_VICTORY) {
-      if (actions & (ACTION_CONFIRM | ACTION_ENTER)) {
+      if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
         audio.unlock();
         save = readSave();
         if (screen === SCREEN_VICTORY) {
@@ -218,18 +219,22 @@ function runGame() {
         } else if (save) startContinue();
         else startFresh();
       }
-      return;
+      return 0;
     }
     if (actions & ACTION_RESTART && screen === SCREEN_PLAY) {
       world.setupMission();
       announce('Mission restarted.');
+      actions &= ~ACTION_RESTART;
     } else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
       screen = SCREEN_PAUSED;
       announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
+      actions &= ~ACTION_PAUSE;
+    } else if (actions & (ACTION_PAUSE | ACTION_PUNCH) && screen === SCREEN_PAUSED) {
       screen = SCREEN_PLAY;
       announce('Playing.');
+      actions &= ~(ACTION_PAUSE | ACTION_PUNCH);
     }
+    return actions;
   }
 
   function react(events) {
@@ -243,13 +248,13 @@ function runGame() {
     else if (events & EVENT_MISSION) toMissionComplete();
   }
 
-  function step() {
+  function step(actions) {
     if (screen === SCREEN_TITLE) {
-      world.step(STEP, null, true);
+      world.step(STEP, null, 0, true);
       return;
     }
     if (screen !== SCREEN_PLAY) return;
-    const events = world.step(STEP, input, false);
+    const events = world.step(STEP, input, actions, false);
     time += STEP;
     audio.engine(world.state.player.inCar ? Math.abs(world.state.player.inCar.speed) / 520 : 0, !!world.state.player.inCar);
     audio.siren(world.state.wanted, STEP);
@@ -260,10 +265,13 @@ function runGame() {
     requestAnimationFrame(frame);
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
-    handleActions();
+    const actions = input.takeActions();
+    const leftover = handleActions(actions);
     if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
+      let first = true;
       while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
+        step(first ? leftover : 0);
+        first = false;
         accumulator -= STEP;
       }
     } else {

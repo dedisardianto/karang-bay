@@ -665,10 +665,11 @@ export function createWorld(city, random) {
 
   /**
    * One fixed step. `input` is the keyboard state (null on the title backdrop).
+   * `actions` are the one-shot presses taken this frame (0 on later sub-steps).
    * With `harmless` set, traffic and pedestrians move but nothing scores and no
    * crime happens — the title screen's living city.
    */
-  function step(dt, input, harmless) {
+  function step(dt, input, actions, harmless) {
     let events = 0;
     state.elapsed += dt;
     if (state.messageTimer > 0) state.messageTimer -= dt;
@@ -676,7 +677,6 @@ export function createWorld(city, random) {
     stepPeds(dt);
     if (harmless) return 0;
 
-    const actions = input ? input.takeActions() : 0;
     if (player.inCar) events |= stepPlayerDriving(dt, input, actions);
     else events |= stepPlayerOnFoot(dt, input, actions);
     events |= stepPolice(dt);
