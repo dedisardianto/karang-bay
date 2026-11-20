@@ -48,9 +48,9 @@ export const PEDS = { count: 22, speed: 55, fleeSpeed: 130 };
 export const POLICE = {
   maxCars: 4,
   maxOfficers: 2,
-  carSpeed: 560,
+  carSpeed: 470,
   officerSpeed: 205,
-  ramDamage: 9,
+  ramDamage: 6,
   bustRange: 30,
   spawnDistance: 700,
 };

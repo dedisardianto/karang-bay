@@ -447,7 +447,7 @@ export function createWorld(city, random) {
       if (player.inCar) {
         const d = Math.hypot(car.x - player.inCar.x, car.y - player.inCar.y);
         if (d < 56 && car.ramCooldown === 0) {
-          car.ramCooldown = 1.2;
+          car.ramCooldown = 1.8;
           damagePlayer(POLICE.ramDamage);
           player.inCar.speed *= 0.55;
           return EVENT_CRASH;
@@ -505,7 +505,16 @@ export function createWorld(city, random) {
     player.punchCooldown = Math.max(0, player.punchCooldown - dt);
 
     if (actions & ACTION_ENTER) {
-      const car = nearestCar(player.x, player.y, CAR.enterRange);
+      // The mission car always wins when it is in reach — stealing a random
+      // passing car by mistake would strand the mission.
+      let car = null;
+      for (const candidate of cars) {
+        if (candidate.active && candidate.mission && Math.hypot(candidate.x - player.x, candidate.y - player.y) < CAR.enterRange) {
+          car = candidate;
+          break;
+        }
+      }
+      if (!car) car = nearestCar(player.x, player.y, CAR.enterRange);
       if (car) {
         if (car.driver) {
           // Pull the driver out: he flees and calls the police.
