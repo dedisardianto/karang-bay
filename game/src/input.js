@@ -1,108 +1,93 @@
-// Keyboard and pointer input for Karang Bay. Keys held down give an 8-way
-// steering direction; single presses (enter a car, punch, pause, mute, restart)
-// are queued as bit flags and collected once by the loop, so a press that lands
-// between two frames is never lost and never counted twice.
+// Keyboard and mouse input.
+// Tracks held keys and edge-triggered presses (cleared once per frame by the
+// main loop). Also tracks clicks, so menus can be used with the mouse.
 
-export const ACTION_ENTER = 1; // E — enter or exit a car, pick up, interact
-export const ACTION_PUNCH = 2; // Space on foot — punch; in a car — handbrake (held)
-export const ACTION_PAUSE = 4; // P / Escape
-export const ACTION_MUTE = 8; // M
-export const ACTION_RESTART = 16; // R
+// Keys the game understands, by KeyboardEvent.code.
+const GAME_KEYS = [
+  'KeyW', 'KeyA', 'KeyS', 'KeyD',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  'KeyE', 'Space', 'ShiftLeft', 'ShiftRight',
+  'KeyM', 'KeyP', 'KeyR', 'Escape', 'Enter',
+];
 
-const KEY_UP = new Set(['ArrowUp', 'KeyW']);
-const KEY_DOWN = new Set(['ArrowDown', 'KeyS']);
-const KEY_LEFT = new Set(['ArrowLeft', 'KeyA']);
-const KEY_RIGHT = new Set(['ArrowRight', 'KeyD']);
-const KEY_ENTER = new Set(['KeyE']);
-const KEY_PUNCH = new Set(['Space']);
-const KEY_PAUSE = new Set(['KeyP', 'Escape']);
-const KEY_MUTE = new Set(['KeyM']);
-const KEY_RESTART = new Set(['KeyR']);
+const Input = {
+  // Codes currently held down.
+  held: new Set(),
+  // Codes pressed since the last clear (edge-triggered).
+  pressed: new Set(),
+  // Last mouse click position in canvas pixels (null until clicked).
+  click: null,
+  // Whether any game key was pressed (used to unlock audio on first input).
+  anyKey: false,
 
-export function createInput(target) {
-  let up = false;
-  let down = false;
-  let left = false;
-  let right = false;
-  let run = false;
-  let handbrake = false;
-  let queued = 0;
+  init(canvas) {
+    window.addEventListener('keydown', (ev) => {
+      if (GAME_KEYS.includes(ev.code)) ev.preventDefault();
+      if (!ev.repeat) this.pressed.add(ev.code);
+      this.held.add(ev.code);
+      this.anyKey = true;
+    });
+    window.addEventListener('keyup', (ev) => {
+      this.held.delete(ev.code);
+    });
+    window.addEventListener('blur', () => {
+      this.held.clear();
+    });
+    canvas.addEventListener('mousedown', (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = ((ev.clientX - rect.left) / rect.width) * CFG.VIEW_W;
+      const y = ((ev.clientY - rect.top) / rect.height) * CFG.VIEW_H;
+      this.click = { x, y };
+      this.anyKey = true;
+    });
+    // Touch: treat a tap as a click too.
+    canvas.addEventListener('touchstart', (ev) => {
+      const t = ev.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      const x = ((t.clientX - rect.left) / rect.width) * CFG.VIEW_W;
+      const y = ((t.clientY - rect.top) / rect.height) * CFG.VIEW_H;
+      this.click = { x, y };
+      this.anyKey = true;
+      ev.preventDefault();
+    }, { passive: false });
+  },
 
-  function queueOnce(code, flag, event) {
-    if (!event.repeat) queued |= flag;
-  }
+  // Is a code held right now?
+  isDown(code) {
+    return this.held.has(code);
+  },
 
-  function onKeyDown(code, event) {
-    if (KEY_UP.has(code)) up = true;
-    else if (KEY_DOWN.has(code)) down = true;
-    else if (KEY_LEFT.has(code)) left = true;
-    else if (KEY_RIGHT.has(code)) right = true;
-    else if (code === 'ShiftLeft' || code === 'ShiftRight') run = true;
-    else if (KEY_ENTER.has(code)) queueOnce(code, ACTION_ENTER, event);
-    else if (KEY_PUNCH.has(code)) {
-      handbrake = true;
-      queueOnce(code, ACTION_PUNCH, event);
-    } else if (KEY_PAUSE.has(code)) queueOnce(code, ACTION_PAUSE, event);
-    else if (KEY_MUTE.has(code)) queueOnce(code, ACTION_MUTE, event);
-    else if (KEY_RESTART.has(code)) queueOnce(code, ACTION_RESTART, event);
-    else return;
-    event.preventDefault();
-  }
+  // Was a code pressed since the last clear?
+  wasPressed(code) {
+    return this.pressed.has(code);
+  },
 
-  function onKeyUp(code) {
-    if (KEY_UP.has(code)) up = false;
-    else if (KEY_DOWN.has(code)) down = false;
-    else if (KEY_LEFT.has(code)) left = false;
-    else if (KEY_RIGHT.has(code)) right = false;
-    else if (code === 'ShiftLeft' || code === 'ShiftRight') run = false;
-    else if (KEY_PUNCH.has(code)) handbrake = false;
-  }
+  // Movement vector from WASD / arrows: {x, y} each in -1..1, or null.
+  moveVector() {
+    let x = 0;
+    let y = 0;
+    if (this.isDown('KeyA') || this.isDown('ArrowLeft')) x -= 1;
+    if (this.isDown('KeyD') || this.isDown('ArrowRight')) x += 1;
+    if (this.isDown('KeyW') || this.isDown('ArrowUp')) y -= 1;
+    if (this.isDown('KeyS') || this.isDown('ArrowDown')) y += 1;
+    if (x === 0 && y === 0) return null;
+    const len = Math.sqrt(x * x + y * y);
+    return { x: x / len, y: y / len };
+  },
 
-  function releaseAll() {
-    up = false;
-    down = false;
-    left = false;
-    right = false;
-    run = false;
-    handbrake = false;
-  }
+  // True while the run key (Shift) is held.
+  isRunning() {
+    return this.isDown('ShiftLeft') || this.isDown('ShiftRight');
+  },
 
-  window.addEventListener('keydown', (event) => onKeyDown(event.code, event));
-  window.addEventListener('keyup', (event) => onKeyUp(event.code));
-  // A key let go while the tab is hidden never sends keyup: drop everything on blur.
-  window.addEventListener('blur', releaseAll);
-  target.addEventListener('pointerdown', () => {
-    queued |= ACTION_ENTER;
-  });
+  // True while the action key (E) is held or was just pressed.
+  actionDown() {
+    return this.isDown('KeyE') || this.wasPressed('KeyE');
+  },
 
-  return {
-    /** Steering as {x, y} in -1..1, normalised so diagonals are not faster. */
-    steer() {
-      const x = (right ? 1 : 0) - (left ? 1 : 0);
-      const y = (down ? 1 : 0) - (up ? 1 : 0);
-      if (x === 0 && y === 0) return { x: 0, y: 0 };
-      const len = Math.hypot(x, y);
-      return { x: x / len, y: y / len };
-    },
-    /** -1 for left, 1 for right, 0 for neither or both (driving steer). */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** 1 while W/Up is held (driving throttle), -1 while S/Down is held. */
-    throttle() {
-      return (up ? 1 : 0) - (down ? 1 : 0);
-    },
-    running() {
-      return run;
-    },
-    handbrakeHeld() {
-      return handbrake;
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = queued;
-      queued = 0;
-      return taken;
-    },
-  };
-}
+  // Clear edge-triggered state; called once per frame by the main loop.
+  endFrame() {
+    this.pressed.clear();
+    this.click = null;
+  },
+};

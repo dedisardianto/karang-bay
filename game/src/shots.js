@@ -1,147 +1,95 @@
-// The screenshot scenes behind ?shot=start|play|chase|end. Each one plays the
-// real rules forward from a fresh world for a fixed number of steps, steered by
-// a simple autopilot (walk to the nearest car, get in, drive at the mission
-// marker), so the frame is what real play looks like and the same seed always
-// gives the same frame.
-import { STEP } from './config.js';
-import { ACTION_ENTER } from './input.js';
-import { EVENT_VICTORY } from './world.js';
-import { SCREEN_MISSION, SCREEN_PLAY, SCREEN_TITLE, SCREEN_VICTORY } from './render.js';
+// KARANG BAY — staged scenes for screenshots.
+// ?shot=start shows the title, ?shot=play a mid-mission drive, ?shot=chase
+// a police chase at wanted 3, ?shot=end the victory screen. Each scene is
+// a real, running game state — the world keeps moving after the stage is set.
 
-const START_SECONDS = 6;
-const DRIVE_SECONDS = 26;
-const CHASE_SECONDS = 8;
-
-function normalizeAngle(angle) {
-  while (angle > Math.PI) angle -= Math.PI * 2;
-  while (angle < -Math.PI) angle += Math.PI * 2;
-  return angle;
-}
-
-/** An input the autopilot drives: walk to the nearest car, enter it, drive at the marker. */
-function buildAutopilot(world) {
-  let queued = 0;
-  let enterQueued = false;
-  const input = {
-    steer() {
-      const state = world.state;
-      const player = state.player;
-      if (player.inCar) {
-        enterQueued = false;
-        return { x: 0, y: 0 };
-      }
-      let best = null;
-      let bestD = Infinity;
-      for (const car of state.cars) {
-        if (!car.active || car.kind === 'traffic') continue;
-        const d = Math.hypot(car.x - player.x, car.y - player.y);
-        if (d < bestD) {
-          bestD = d;
-          best = car;
-        }
-      }
-      if (!best) return { x: 0, y: 0 };
-      const dx = best.x - player.x;
-      const dy = best.y - player.y;
-      const len = Math.hypot(dx, dy) || 1;
-      if (bestD >= 60) {
-        enterQueued = false;
-      } else if (!enterQueued) {
-        // Queue ENTER once per approach: re-queueing it every step would hand a
-        // later step a stale ENTER that exits the car right after entering it.
-        queued |= ACTION_ENTER;
-        enterQueued = true;
-      }
-      return { x: dx / len, y: dy / len };
-    },
-    direction() {
-      const state = world.state;
-      const car = state.player.inCar;
-      if (!car) return 0;
-      const t = state.missionTarget;
-      const want = Math.atan2(t.y - car.y, t.x - car.x);
-      const diff = normalizeAngle(want - car.angle);
-      return diff > 0.12 ? 1 : diff < -0.12 ? -1 : 0;
-    },
-    throttle() {
-      const state = world.state;
-      const car = state.player.inCar;
-      if (!car) return 0;
-      const t = state.missionTarget;
-      const want = Math.atan2(t.y - car.y, t.x - car.x);
-      return Math.abs(normalizeAngle(want - car.angle)) > 1.4 ? 0 : 1;
-    },
-    running() {
-      return true;
-    },
-    handbrakeHeld() {
-      return false;
-    },
-    takeActions() {
-      const taken = queued;
-      queued = 0;
-      return taken;
-    },
-  };
-  return input;
-}
-
-function simulate(world, input, seconds, onStep) {
-  let events = 0;
-  for (let i = 0; i < seconds / STEP; i += 1) {
-    events |= world.step(STEP, input, input.takeActions(), false);
-    if (onStep) onStep(events);
-    if (events & EVENT_VICTORY) break;
-  }
-  return events;
-}
-
-/**
- * Set `world` to the named scene (start, play, chase or end; any other name is
- * start) and return the screen to draw over it, the best cash to show and any
- * panel data.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'chase' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, null, 0, true);
-    return { screen: SCREEN_TITLE, best: 250000, panelData: null };
-  }
-
-  const input = buildAutopilot(world);
-  if (name === 'play') {
-    simulate(world, input, DRIVE_SECONDS);
-    world.state.wanted = 2;
-    simulate(world, input, CHASE_SECONDS);
-    return { screen: SCREEN_PLAY, best: 125000, panelData: null };
-  }
-
-  if (name === 'chase') {
-    simulate(world, input, 14);
-    world.state.wanted = 4;
-    simulate(world, input, CHASE_SECONDS);
-    return { screen: SCREEN_PLAY, best: 300000, panelData: null };
-  }
-
-  // end: play mission 5 for real — drive the bridge road north to the Jembatan.
-  world.state.missionIndex = 4;
-  world.setupMission();
-  world.state.cash = 425000;
-  let events = simulate(world, input, 45);
-  if (!(events & EVENT_VICTORY)) {
-    // Autopilot did not make it: put the car on the bridge approach and finish
-    // the run through the real rules.
-    const car = world.state.player.inCar;
-    if (car) {
-      car.x = 1600;
-      car.y = 260;
-      car.angle = -Math.PI / 2;
-      car.speed = 200;
+const Shots = {
+  // Apply a staged scene to a freshly reset world. Returns the screen the
+  // game should open on.
+  apply(name) {
+    if (name === 'start') {
+      return 'title';
     }
-    events = simulate(world, input, 10);
-  }
-  if (events & EVENT_VICTORY) {
-    return { screen: SCREEN_VICTORY, best: 675000, panelData: null };
-  }
-  return { screen: SCREEN_MISSION, best: 675000, panelData: { missionIndex: 4 } };
-}
+    if (name === 'play') {
+      // Mid-mission 1: Rian driving east on the y=900 road toward Pelabuhan.
+      World.reset(World.seed, { cash: 50000, missionIndex: 0 });
+      const p = World.player;
+      const car = World.cars.find((c) => c.parked && !c.police);
+      if (car) {
+        car.parked = false;
+        car.player = true;
+        p.car = car;
+        p.onFoot = false;
+        p.x = car.x;
+        p.y = car.y;
+        p.angle = car.angle;
+      }
+      p.x = 1200;
+      p.y = 900;
+      if (p.car) {
+        p.car.x = 1200;
+        p.car.y = 900;
+        p.car.angle = 0;
+        // Fast enough to still be moving when the screenshot is taken.
+        p.car.speed = 480;
+      }
+      World.mission.phase = 'deliver';
+      World.mission.timer = 82;
+      World.mission.target = { x: CFG.POINTS.pelabuhanDrop.x, y: CFG.POINTS.pelabuhanDrop.y, label: 'Deliver to Pelabuhan — before the timer!' };
+      World.showMessage('Package picked up! Deliver it to Pelabuhan.', 6);
+      return 'play';
+    }
+    if (name === 'chase') {
+      // Mission 3: wanted 3, police cars closing in on Rian's car.
+      World.reset(World.seed, { cash: 125000, missionIndex: 2 });
+      const p = World.player;
+      const car = World.cars.find((c) => c.parked && !c.police);
+      if (car) {
+        car.parked = false;
+        car.player = true;
+        p.car = car;
+        p.onFoot = false;
+        p.x = car.x;
+        p.y = car.y;
+        p.angle = car.angle;
+      }
+      p.x = 1500;
+      p.y = 900;
+      if (p.car) {
+        p.car.x = 1500;
+        p.car.y = 900;
+        p.car.angle = 0;
+        p.car.speed = 300;
+      }
+      World.setWanted(3);
+      World.mission.timer = 31;
+      for (let i = 0; i < 3; i++) {
+        World.spawnPoliceCar();
+      }
+      // Pull the police in close so the chase reads in one frame.
+      // All three spots are on roads, so the police can actually move.
+      const cops = World.cars.filter((c) => c.police);
+      const spots = [
+        { x: 1200, y: 900 }, { x: 1800, y: 900 }, { x: 1600, y: 1150 },
+      ];
+      cops.forEach((cop, i) => {
+        const s = spots[i % spots.length];
+        cop.x = s.x;
+        cop.y = s.y;
+        cop.speed = 300;
+      });
+      World.showMessage('Heat Wave — survive wanted level 3!', 6);
+      return 'play';
+    }
+    if (name === 'end') {
+      // Victory: all five missions done, the full payout in hand.
+      World.reset(World.seed, { cash: 600000, missionIndex: 5 });
+      World.victory = true;
+      World.mission = null;
+      World.cash = 600000;
+      World.bestCash = 600000;
+      return 'victory';
+    }
+    return 'title';
+  },
+};

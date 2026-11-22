@@ -1,297 +1,209 @@
-// Boot and the one loop: input is read every frame, the world advances in
-// fixed 1/60 s steps (several in a slow frame, none in a fast one), and the
-// renderer paints what is there. The game moves between seven screens: title,
-// play, paused, busted, wasted, mission complete and victory. Progress (cash +
-// mission) is saved to localStorage so a run can continue; the best cash is
-// kept separately.
-//
-// ?seed=N fixes the city and traffic. ?shot=start|play|chase|end (with &seed=N)
-// stages that scene instead of running the loop, paints it twice and sets
-// window.__shotReady for a screenshot.
-import { BEST_KEY, SAVE_KEY, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createCity } from './city.js';
-import {
-  createWorld, EVENT_BUSTED, EVENT_CRASH, EVENT_HIT_PED, EVENT_MISSION, EVENT_PICKUP,
-  EVENT_PUNCH, EVENT_STEAL, EVENT_VICTORY, EVENT_WASTED,
-} from './world.js';
-import {
-  ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, ACTION_RESTART, createInput,
-} from './input.js';
-import {
-  createRenderer, SCREEN_BUSTED, SCREEN_MISSION, SCREEN_PAUSED, SCREEN_PLAY,
-  SCREEN_TITLE, SCREEN_VICTORY, SCREEN_WASTED,
-} from './render.js';
-import { createAudio } from './audio.js';
-import { stageShot } from './shots.js';
+// KARANG BAY — boot, main loop, screens and saves.
+// Fixed-step updates (60 Hz), canvas rendering every animation frame,
+// localStorage saves, and the ?shot= / ?seed= staging hooks.
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
-const MAX_FRAME = 0.25;
+const Main = {
+  SAVE_KEY: 'karangbay-save-v1',
+  canvas: null,
+  ctx: null,
+  screen: 'title',
+  seed: 1,
+  shot: null,
+  save: null,
+  prevMissionIndex: 0,
+  prevHealth: CFG.MAX_HEALTH,
+  lastTime: 0,
+  accumulator: 0,
 
-const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
-
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const city = createCity(createRandom(seed));
-const world = createWorld(city, createRandom(seed + 101));
-const renderer = createRenderer(canvas, city);
-const audio = createAudio();
-
-function loadBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-function storeBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best cash then lasts this visit only.
-  }
-}
-
-function loadSave() {
-  try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const save = JSON.parse(raw);
-    if (!Number.isInteger(save.missionIndex) || !Number.isFinite(save.cash)) return null;
-    return save;
-  } catch {
-    return null;
-  }
-}
-
-function storeSave() {
-  try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify({
-      cash: world.state.cash,
-      missionIndex: world.state.missionIndex,
-    }));
-  } catch {
-    // Storage can be off: the run then lasts this visit only.
-  }
-}
-
-function dropSave() {
-  try {
-    window.localStorage.removeItem(SAVE_KEY);
-  } catch {
-    // Nothing to clear.
-  }
-}
-
-function playShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best, scene.panelData, performance.now() / 1000);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
-}
-
-function playGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = loadBest();
-  let save = loadSave();
-  let accumulator = 0;
-  let last = performance.now();
-  let time = 0;
-  let victoryShown = false;
-
-  // Debug hook for playtesting: a live read-only view of the run.
-  window.__karang = {
-    state: world.state,
-    get screen() { return screen; },
-    get best() { return best; },
-  };
-
-  // Screen readers (and anyone watching the page's text) hear the screen changes.
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function beginFresh() {
-    world.reset();
-    world.state.cash = 0;
-    world.state.missionIndex = 0;
-    world.setupMission();
-    dropSave();
-    victoryShown = false;
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce('Playing. Mission 1: First Delivery.');
-  }
-
-  function beginContinued() {
-    world.reset();
-    world.state.cash = save.cash;
-    world.state.missionIndex = Math.min(save.missionIndex, 4);
-    world.setupMission();
-    victoryShown = false;
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Continuing. Mission ${world.state.missionIndex + 1}.`);
-  }
-
-  function showBusted() {
-    world.applyBusted();
-    audio.busted();
-    screen = SCREEN_BUSTED;
-    storeSave();
-    announce('Busted. The police caught Rian.');
-  }
-
-  function showWasted() {
-    world.applyWasted();
-    audio.busted();
-    screen = SCREEN_WASTED;
-    storeSave();
-    announce('Wasted. Rian went down.');
-  }
-
-  function showMissionComplete() {
-    audio.jingle();
-    screen = SCREEN_MISSION;
-    storeSave();
-    announce(`Mission complete. Cash ${world.state.cash}.`);
-  }
-
-  function showVictory() {
-    audio.victory();
-    screen = SCREEN_VICTORY;
-    victoryShown = true;
-    if (world.state.cash > best) {
-      best = world.state.cash;
-      storeBest(best);
-    }
-    dropSave();
-    announce('Victory. Rian crossed the bridge out of Karang Bay.');
-  }
-
-  function consumeActions(actions) {
-    // Returns the actions this screen did not consume, for the world to use.
-    if (actions & ACTION_MUTE) {
-      audio.setMuted(!audio.isMuted());
-      announce(audio.isMuted() ? 'Sound off.' : 'Sound on.');
-      actions &= ~ACTION_MUTE;
-    }
-    if (screen === SCREEN_TITLE) {
-      if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
-        audio.unlock();
-        if (save) beginContinued();
-        else beginFresh();
-      } else if (actions & ACTION_RESTART) {
-        audio.unlock();
-        save = null;
-        beginFresh();
-      }
-      return 0;
-    }
-    if (screen === SCREEN_MISSION) {
-      if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
-        audio.unlock();
-        const won = world.advanceMission();
-        if (won) showVictory();
-        else {
-          screen = SCREEN_PLAY;
-          announce(`Mission ${world.state.missionIndex + 1}.`);
-        }
-      }
-      return 0;
-    }
-    if (screen === SCREEN_BUSTED || screen === SCREEN_WASTED || screen === SCREEN_VICTORY) {
-      if (actions & (ACTION_PUNCH | ACTION_ENTER)) {
-        audio.unlock();
-        save = loadSave();
-        if (screen === SCREEN_VICTORY) {
-          save = null;
-          beginFresh();
-        } else if (save) beginContinued();
-        else beginFresh();
-      }
-      return 0;
-    }
-    if (actions & ACTION_RESTART && screen === SCREEN_PLAY) {
-      world.setupMission();
-      announce('Mission restarted.');
-      actions &= ~ACTION_RESTART;
-    } else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-      actions &= ~ACTION_PAUSE;
-    } else if (actions & (ACTION_PAUSE | ACTION_PUNCH) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-      actions &= ~(ACTION_PAUSE | ACTION_PUNCH);
-    }
-    return actions;
-  }
-
-  function reactToEvents(events) {
-    if (events & EVENT_PICKUP) audio.pickup();
-    if (events & EVENT_STEAL) audio.steal();
-    if (events & EVENT_PUNCH) audio.punch();
-    if (events & (EVENT_CRASH | EVENT_HIT_PED)) audio.crash();
-    if (events & EVENT_BUSTED) showBusted();
-    else if (events & EVENT_WASTED) showWasted();
-    else if (events & EVENT_VICTORY) showMissionComplete();
-    else if (events & EVENT_MISSION) showMissionComplete();
-  }
-
-  function advance(actions) {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, null, 0, true);
-      return;
-    }
-    if (screen !== SCREEN_PLAY) return;
-    const events = world.step(STEP, input, actions, false);
-    time += STEP;
-    audio.engine(world.state.player.inCar ? Math.abs(world.state.player.inCar.speed) / 520 : 0, !!world.state.player.inCar);
-    audio.siren(world.state.wanted, STEP);
-    reactToEvents(events);
-  }
-
-  function tick(now) {
-    requestAnimationFrame(tick);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    const actions = input.takeActions();
-    const leftover = consumeActions(actions);
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      let first = true;
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        advance(first ? leftover : 0);
-        first = false;
-        accumulator -= STEP;
+  boot() {
+    const params = new URLSearchParams(window.location.search);
+    this.seed = parseInt(params.get('seed') || '1', 10) || 1;
+    this.shot = params.get('shot');
+    this.canvas = document.getElementById('game');
+    this.ctx = this.canvas.getContext('2d');
+    Input.init(this.canvas);
+    this.save = this.loadSave();
+    City.build(this.seed);
+    World.reset(this.seed, {
+      cash: 0,
+      missionIndex: 0,
+      bestCash: this.save ? this.save.best : 0,
+    });
+    this.prevMissionIndex = 0;
+    this.prevHealth = CFG.MAX_HEALTH;
+    if (this.shot) {
+      this.screen = Shots.apply(this.shot);
+      if (this.screen === 'play') {
+        this.prevMissionIndex = World.missionIndex;
       }
     } else {
-      accumulator = 0;
+      this.screen = 'title';
     }
-    renderer.draw(world.state, screen, best, { save, missionIndex: world.state.missionIndex }, time);
-  }
+    // Debug/testing hook: the live world, for automated playtests.
+    window.KB = {
+      world: World,
+      city: City,
+      config: CFG,
+      screen: () => this.screen,
+      version: 'karang-bay-fix-1',
+    };
+    this.lastTime = performance.now();
+    requestAnimationFrame((t) => this.frame(t));
+  },
 
-  // Leaving the tab pauses a running game rather than letting the city move unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
+  // ---- saves --------------------------------------------------------------
+
+  loadSave() {
+    try {
+      const raw = localStorage.getItem(this.SAVE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (typeof data.best !== 'number') return null;
+      return data;
+    } catch (err) {
+      return null;
     }
-  });
+  },
 
-  announce('Karang Bay. Press Space or click to start.');
-  requestAnimationFrame(tick);
-}
+  saveExists() {
+    return !!this.save;
+  },
 
-if (shot) playShot(shot);
-else playGame();
+  writeSave() {
+    try {
+      localStorage.setItem(this.SAVE_KEY, JSON.stringify({
+        best: World.bestCash,
+        cash: World.cash,
+        missionIndex: Math.min(World.missionIndex, CFG.MISSIONS.length - 1),
+      }));
+      this.save = this.loadSave();
+    } catch (err) {
+      // Storage may be unavailable; the game plays on regardless.
+    }
+  },
+
+  clearSave() {
+    try {
+      localStorage.removeItem(this.SAVE_KEY);
+    } catch (err) {
+      // Ignore.
+    }
+    this.save = null;
+  },
+
+  // ---- flow ---------------------------------------------------------------
+
+  startGame(fresh) {
+    if (fresh || !this.save) {
+      World.reset(this.seed, { cash: 0, missionIndex: 0, bestCash: World.bestCash });
+    } else {
+      World.reset(this.seed, {
+        cash: this.save.cash || 0,
+        missionIndex: this.save.missionIndex || 0,
+        bestCash: this.save.best || 0,
+      });
+    }
+    this.prevMissionIndex = World.missionIndex;
+    this.prevHealth = CFG.MAX_HEALTH;
+    this.screen = 'play';
+    AudioSys.unlock();
+  },
+
+  frame(now) {
+    const dt = Math.min(0.1, (now - this.lastTime) / 1000);
+    this.lastTime = now;
+    this.handleKeys();
+    if (this.screen === 'play') {
+      this.accumulator += dt;
+      const step = 1 / 60;
+      let guard = 0;
+      while (this.accumulator >= step && guard < 5) {
+        World.update(step);
+        this.accumulator -= step;
+        guard++;
+      }
+      this.afterUpdate();
+    }
+    AudioSys.update(dt, World.player.speed, !World.player.onFoot, World.wanted);
+    Render.draw(this.ctx, this.screen);
+    Input.endFrame();
+    requestAnimationFrame((t) => this.frame(t));
+  },
+
+  afterUpdate() {
+    const p = World.player;
+    // Crash / hit feedback.
+    if (p.health < this.prevHealth) AudioSys.thud();
+    this.prevHealth = p.health;
+    // Mission progress: jingle + save on completion.
+    if (World.missionIndex > this.prevMissionIndex) {
+      AudioSys.jingle();
+      this.prevMissionIndex = World.missionIndex;
+      this.writeSave();
+    }
+    // Busted / wasted screens.
+    if (World.screenEvent === 'busted') {
+      World.screenEvent = null;
+      AudioSys.busted();
+      this.writeSave();
+      this.screen = 'busted';
+    } else if (World.screenEvent === 'wasted') {
+      World.screenEvent = null;
+      AudioSys.busted();
+      this.writeSave();
+      this.screen = 'wasted';
+    }
+    // Victory.
+    if (World.victory && this.screen === 'play') {
+      AudioSys.jingle();
+      this.writeSave();
+      this.screen = 'victory';
+    }
+  },
+
+  handleKeys() {
+    // First gesture unlocks audio.
+    if (Input.anyKey) AudioSys.unlock();
+    if (Input.wasPressed('KeyM')) {
+      const muted = AudioSys.toggleMute();
+      if (this.screen === 'play') World.showMessage(muted ? 'Sound off (M to turn on)' : 'Sound on', 1.5);
+    }
+    if (this.screen === 'title') {
+      if (Input.wasPressed('Enter') || Input.click) {
+        this.startGame(false);
+      } else if (Input.wasPressed('KeyC')) {
+        this.clearSave();
+        this.startGame(true);
+      }
+      return;
+    }
+    if (this.screen === 'play') {
+      if (Input.wasPressed('KeyP') || Input.wasPressed('Escape')) {
+        this.screen = 'pause';
+      } else if (Input.wasPressed('KeyR')) {
+        World.failMission('Mission restarted.');
+      }
+      return;
+    }
+    if (this.screen === 'pause') {
+      if (Input.wasPressed('KeyP') || Input.wasPressed('Escape') || Input.wasPressed('Enter')) {
+        this.screen = 'play';
+      }
+      return;
+    }
+    if (this.screen === 'busted' || this.screen === 'wasted') {
+      if (Input.wasPressed('Enter') || Input.click) {
+        this.screen = 'play';
+      }
+      return;
+    }
+    if (this.screen === 'victory') {
+      if (Input.wasPressed('Enter') || Input.click) {
+        this.clearSave();
+        this.startGame(true);
+      }
+    }
+  },
+};
+
+window.addEventListener('DOMContentLoaded', () => Main.boot());
