@@ -4,7 +4,7 @@
 // Runs on Node 22 as-is: `node main.ts`. The output directory comes from
 // MAKEFUN_OUTPUT_DIR, or /output when it is not set.
 
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -12,8 +12,6 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const root = dirname(fileURLToPath(import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// A clean output directory every run, so the two grading runs agree.
-rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(join(root, 'game'), join(out, 'game'), { recursive: true });
 cpSync(join(root, 'screenshots'), join(out, 'screenshots'), { recursive: true });
